@@ -9,6 +9,12 @@ import studentRoutes from "./routes/students.js";
 import facultyRoutes from "./routes/faculty.js";
 import parentRoutes from "./routes/parents.js";
 import adminRoutes from "./routes/admin.js";
+import timetableRoutes from "./routes/timetable.js";
+import attendanceRoutes from "./routes/attendance.js";
+import marksRoutes from "./routes/marks.js";
+import notificationRoutes from "./routes/notifications.js";
+import leaveRoutes from "./routes/leaves.js";
+import feeRoutes from "./routes/fees.js";
 
 dotenv.config();
 
@@ -30,6 +36,12 @@ app.use("/api/students", studentRoutes);  // Student profiles
 app.use("/api/faculty", facultyRoutes);   // Faculty profiles
 app.use("/api/parents", parentRoutes);    // Parent profiles
 app.use("/api/admin", adminRoutes);       // Admin dashboard + user management
+app.use("/api/timetable", timetableRoutes); // Timetable slots
+app.use("/api/attendance", attendanceRoutes); // Attendance tracking
+app.use("/api/marks", marksRoutes);         // Student performance/grades
+app.use("/api/notifications", notificationRoutes); // System announcements
+app.use("/api/leaves", leaveRoutes);       // Leave requests
+app.use("/api/fees", feeRoutes);           // Fee invoices and payments
 
 // Global Error Handler (must be last)
 app.use(errorHandler);
