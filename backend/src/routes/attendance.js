@@ -6,6 +6,7 @@ import {
   getStudentAttendanceSummary,
   getClassAttendance,
   markAttendance,
+  getAdminAttendanceSummary,
 } from "../controllers/attendanceController.js";
 
 const router = express.Router();
@@ -18,6 +19,9 @@ router.get("/summary/:studentId", protect, getStudentAttendanceSummary);
 
 // GET /api/attendance/class - Get attendance list for a specific class (Faculty and Admin)
 router.get("/class", protect, authorize("faculty", "admin"), getClassAttendance);
+
+// GET /api/attendance/admin/summary - Admin aggregate view of all class groups
+router.get("/admin/summary", protect, authorize("admin"), getAdminAttendanceSummary);
 
 // POST /api/attendance/mark - Mark attendance for students (Faculty and Admin)
 router.post("/mark", protect, authorize("faculty", "admin"), markAttendance);

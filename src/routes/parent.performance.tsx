@@ -1,29 +1,139 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PageHeader, StatCard, Card } from "@/components/AppShell";
-import { BarChart3, Trophy, TrendingDown, Award, Download, MessageSquare, History } from "lucide-react";
-import { marks, performanceTrend, gradeDistribution } from "@/lib/mock";
+import { BarChart3, Trophy, TrendingDown, Award, Download, MessageSquare, History, RefreshCw } from "lucide-react";
+import { performanceTrend, gradeDistribution as mockGradeDistribution } from "@/lib/mock";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 import { downloadPDF } from "@/lib/files";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/parent/performance")({ component: Page });
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+interface ParentMark {
+  name: string;
+  code: string;
+  internal: number;
+  external: number;
+  total: number;
+  percentage: number;
+  grade: string;
+  remark: string;
+}
+
+interface ChildProfile {
+  _id: string;
+  rollNumber: string;
+  branch: string;
+  section: string;
+  year: number;
+  userId: { name: string; email: string };
+}
+
 function Page() {
-  const total = marks.reduce((s, m) => s + m.total, 0);
-  const max = marks.length * 100;
-  const overall = ((total / max) * 100).toFixed(2);
-  const highest = marks.reduce((a, b) => (a.total > b.total ? a : b));
-  const lowest = marks.reduce((a, b) => (a.total < b.total ? a : b));
+  const { user } = useAuth();
+  const token = user?.token;
   const navigate = useNavigate();
-  const tabs = ["Subject-wise Marks", "Term Comparison", "Performance Analysis", "Grade Report"];
+
+  const [child, setChild] = useState<ChildProfile | null>(null);
+  const [marks, setMarks] = useState<ParentMark[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Hidden tabs per requirement 7 & 8
+  const tabs = ["Subject-wise Marks"/*, "Term Comparison", "Performance Analysis", "Grade Report"*/];
   const [tab, setTab] = useState(tabs[0]);
+
+  useEffect(() => {
+    if (!token) return;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const childrenRes = await fetch(`${API_BASE}/api/parents/children`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const childrenData = await childrenRes.json();
+        if (childrenData.success && childrenData.data?.children?.length) {
+          const firstChild: ChildProfile = childrenData.data.children[0];
+          setChild(firstChild);
+          
+          const marksRes = await fetch(`${API_BASE}/api/marks/student/${firstChild._id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const marksData = await marksRes.json();
+          if (marksData.success) {
+            setMarks(marksData.data.marks || []);
+          }
+        }
+      } catch (err) {
+        console.error("Error loading child performance marks:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [token]);
+
+  const stats = useMemo(() => {
+    if (marks.length === 0) {
+      return {
+        overall: "0.00",
+        highest: { name: "N/A", total: 0 },
+        lowest: { name: "N/A", total: 0 }
+      };
+    }
+    const totalScoreSum = marks.reduce((s, m) => s + m.total, 0);
+    const maxScoreSum = marks.length * 100;
+    const overall = ((totalScoreSum / maxScoreSum) * 100).toFixed(2);
+    const highestMarkObj = marks.reduce((a, b) => (a.total > b.total ? a : b));
+    const lowestMarkObj = marks.reduce((a, b) => (a.total < b.total ? a : b));
+    return {
+      overall,
+      highest: highestMarkObj,
+      lowest: lowestMarkObj
+    };
+  }, [marks]);
+
+  const gradeDistribution = useMemo(() => {
+    if (marks.length === 0) return mockGradeDistribution;
+    let excellent = 0;
+    let good = 0;
+    let average = 0;
+    let below = 0;
+
+    marks.forEach(m => {
+      if (m.total >= 80) excellent++;
+      else if (m.total >= 60) good++;
+      else if (m.total >= 40) average++;
+      else below++;
+    });
+
+    return [
+      { name: "Excellent (80%+)", value: excellent, color: "oklch(0.65 0.16 150)" },
+      { name: "Good (60-79%)", value: good, color: "oklch(0.65 0.15 240)" },
+      { name: "Average (40-59%)", value: average, color: "oklch(0.75 0.16 65)" },
+      { name: "Below 40%", value: below, color: "oklch(0.62 0.22 25)" },
+    ];
+  }, [marks]);
+
   const downloadMarksheet = () => downloadPDF("Marksheet — Semester 6", marks.map(m => `${m.name} (${m.code}): ${m.total}/100 — ${m.grade}`).join("\n"), "marksheet.pdf");
+
   const actions = [
     { icon: Download, label: "Download Marksheet", tint: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300", onClick: downloadMarksheet },
     { icon: History, label: "View Previous Results", tint: "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300", onClick: () => toast.info("Previous results loaded", { description: "Sem 5: 76.8% · Sem 4: 78.1% · Sem 3: 74.5%" }) },
     { icon: MessageSquare, label: "Contact Teacher", tint: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300", onClick: () => navigate({ to: "/parent/chatbot" }) },
   ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-muted-foreground flex items-center gap-2">
+          <RefreshCw className="w-5 h-5 animate-spin" /> Loading academic performance...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -32,20 +142,29 @@ function Page() {
         subtitle="View your child's subject-wise marks and performance details."
         action={
           <div className="flex flex-wrap gap-2">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card text-sm">
-              <div className="w-7 h-7 rounded-full gradient-primary text-white text-[10px] flex items-center justify-center font-bold">AS</div>
-              <div className="leading-tight"><div className="font-semibold text-xs">Ananya Sharma</div><div className="text-[10px] text-muted-foreground">CSE · 3rd Year (A)</div></div>
-            </div>
-            <select className="px-3 py-2 rounded-lg border border-border bg-card text-sm"><option>Semester 6 (2024-25)</option><option>Semester 5</option></select>
+            {child && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card text-sm">
+                <div className="w-7 h-7 rounded-full gradient-primary text-white text-[10px] flex items-center justify-center font-bold">
+                  {child.userId?.name?.slice(0, 2).toUpperCase() || "S"}
+                </div>
+                <div className="leading-tight">
+                  <div className="font-semibold text-xs">{child.userId?.name}</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {child.branch} · {child.year}{child.year === 1 ? "st" : child.year === 2 ? "nd" : child.year === 3 ? "rd" : "th"} Year ({child.section})
+                  </div>
+                </div>
+              </div>
+            )}
+            <select className="px-3 py-2 rounded-lg border border-border bg-card text-sm"><option>Semester 6</option></select>
           </div>
         }
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={BarChart3} label="Overall Percentage" value={`${overall}%`} tint="violet" sub="Good Performance" />
-        <StatCard icon={Trophy} label={`Highest Score · ${highest.name}`} value={`${highest.total}/100`} tint="emerald" />
-        <StatCard icon={TrendingDown} label={`Lowest Score · ${lowest.name}`} value={`${lowest.total}/100`} tint="amber" />
-        <StatCard icon={Award} label="Rank in Class" value="5 / 60" tint="blue" sub="Top 10%" />
+        <StatCard icon={BarChart3} label="Overall Percentage" value={`${stats.overall}%`} tint="violet" sub="Real-time Performance" />
+        <StatCard icon={Trophy} label={`Highest Score · ${stats.highest.name}`} value={`${stats.highest.total}/100`} tint="emerald" />
+        <StatCard icon={TrendingDown} label={`Lowest Score · ${stats.lowest.name}`} value={`${stats.lowest.total}/100`} tint="amber" />
+        <StatCard icon={Award} label="Rank in Class" value="N/A" tint="blue" sub="Top 10%" />
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
@@ -92,7 +211,7 @@ function Page() {
             </table>
           </div>
           <div className="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-400/30 text-xs text-blue-900 dark:text-blue-100">
-            <strong>Note:</strong> Marks are for internal assessments only. Final marks will be published after end semester examinations.
+            <strong>Note:</strong> Marks shown are combined internal assessments and external examinations.
           </div>
         </Card>
 
@@ -108,7 +227,7 @@ function Page() {
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <div className="text-xl font-extrabold">{overall}%</div>
+                <div className="text-xl font-extrabold">{stats.overall}%</div>
                 <div className="text-[10px] text-muted-foreground">Overall</div>
               </div>
             </div>
@@ -123,9 +242,9 @@ function Page() {
           </Card>
 
           <Card className="p-5 bg-gradient-to-br from-primary/8 to-transparent">
-            <div className="flex items-center gap-2 mb-2"><MessageSquare className="w-4 h-4 text-primary" /><h3 className="font-bold">Teacher Remarks</h3></div>
-            <p className="text-sm text-muted-foreground leading-relaxed">Ananya is performing well in most subjects. She should focus more on Discrete Mathematics to improve her understanding and scores.</p>
-            <div className="text-xs text-muted-foreground mt-2">— Class Teacher</div>
+            <div className="flex items-center gap-2 mb-2"><MessageSquare className="w-4 h-4 text-primary" /><h3 className="font-bold">Academic Status</h3></div>
+            <p className="text-sm text-muted-foreground leading-relaxed">Your child is maintaining consistent progress. Focus on maintaining balanced preparation for optimal semester results.</p>
+            <div className="text-xs text-muted-foreground mt-2">— Matrusri ERP System</div>
           </Card>
         </div>
       </div>

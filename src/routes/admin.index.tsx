@@ -6,12 +6,14 @@ import {
   BookOpen, Building2, Bell, Activity, UserPlus, Send, BarChart3, ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import {
   LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, Area, AreaChart, BarChart, Bar, CartesianGrid,
 } from "recharts";
+
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export const Route = createFileRoute("/admin/")({ component: Dashboard });
 
@@ -54,13 +56,41 @@ function Dashboard() {
   const navigate = useNavigate();
   const [date, setDate] = useState<Date>(new Date(2026, 4, 30));
   const [open, setOpen] = useState(false);
-  const first = user?.name?.split(" ")[0] ?? "Admin";
+  const name = user?.name ?? "Admin";
   const dateStr = date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
   const dayStr = date.toLocaleDateString("en-US", { weekday: "long" });
+
+  const token = user?.token;
+  const [metrics, setMetrics] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!token) return;
+    setLoading(true);
+    fetch(`${API_BASE}/api/admin/metrics`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((res) => {
+        if (res.success && res.data?.metrics) {
+          setMetrics(res.data.metrics);
+        }
+      })
+      .catch((err) => console.error("Error fetching admin metrics:", err))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
   return (
     <div className="space-y-6">
       <PageHeader
-        title={`Welcome back, ${first}! 👋`}
+        title={`Welcome back, ${name}! 👋`}
         subtitle="Here's what's happening in your campus today."
         action={
           <Popover open={open} onOpenChange={setOpen}>
@@ -92,89 +122,118 @@ function Dashboard() {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <MetricCard icon={Users}         label="Total Students"          value="2,450"  tint="violet"  trend="120 this month" />
-        <MetricCard icon={GraduationCap} label="Total Faculty"           value="156"    tint="emerald" trend="8 this month" />
-        <MetricCard icon={Users2}        label="Total Parents"           value="1,248"  tint="blue"    trend="75 this month" />
-        <MetricCard icon={CalendarCheck} label="Today's Attendance"      value="92.45%" tint="amber"   trend="2.35% from yesterday" trendDir="down" />
-        <MetricCard icon={FileText}      label="Today's Marks Submitted" value="342"    tint="fuchsia" trend="28 this month" />
+        <MetricCard icon={Users}         label="Total Students"          value={metrics?.totalStudents?.toLocaleString() ?? "0"}  tint="violet"  trend="Active students" />
+        <MetricCard icon={GraduationCap} label="Total Faculty"           value={metrics?.totalFaculty?.toLocaleString() ?? "0"}    tint="emerald" trend="Active faculty" />
+        <MetricCard icon={Users2}        label="Total Parents"           value={metrics?.totalParents?.toLocaleString() ?? "0"}  tint="blue"    trend="Active parents" />
+        <MetricCard icon={CalendarCheck} label="Today's Attendance"      value={`${metrics?.todayAttendance ?? 0}%`} tint="amber"   trend="Today's snapshot" />
+        <MetricCard icon={FileText}      label="Today's Marks Submitted" value={metrics?.totalMarks?.toLocaleString() ?? "0"}    tint="fuchsia" trend="Total marks uploaded" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <SectionCard title="Attendance Overview" subtitle="This Month" className="col-span-1">
+        <SectionCard title="Attendance Overview" subtitle="Today" className="col-span-1">
           <div className="flex flex-col items-center gap-4">
             <Donut
               size={180}
               data={[
-                { label: "Present", value: 2188, color: "#10b981" },
-                { label: "Absent",  value: 212,  color: "#ef4444" },
-                { label: "Late",    value: 50,   color: "#f59e0b" },
+                { label: "Present", value: metrics?.attendanceOverview?.present ?? 0, color: "#10b981" },
+                { label: "Absent",  value: metrics?.attendanceOverview?.absent ?? 0,  color: "#ef4444" },
+                { label: "Late",    value: metrics?.attendanceOverview?.late ?? 0,   color: "#f59e0b" },
               ]}
               center={
                 <>
-                  <div className="text-[26px] font-extrabold">92.45%</div>
+                  <div className="text-[26px] font-extrabold">{metrics?.attendanceOverview?.overallPercentage ?? 0}%</div>
                   <div className="text-[11px] text-muted-foreground">Overall</div>
                 </>
               }
             />
             <div className="w-full space-y-2 text-[12.5px]">
-              <Row dot="#10b981" k="Present" v="2,188 (89.24%)" />
-              <Row dot="#ef4444" k="Absent" v="212 (8.64%)" />
-              <Row dot="#f59e0b" k="Late" v="50 (2.04%)" />
+              {(() => {
+                const present = metrics?.attendanceOverview?.present ?? 0;
+                const absent = metrics?.attendanceOverview?.absent ?? 0;
+                const late = metrics?.attendanceOverview?.late ?? 0;
+                const total = present + absent + late;
+                const getPct = (v: number) => total > 0 ? ((v / total) * 100).toFixed(2) : "0.00";
+                return (
+                  <>
+                    <Row dot="#10b981" k="Present" v={`${present.toLocaleString()} (${getPct(present)}%)`} />
+                    <Row dot="#ef4444" k="Absent" v={`${absent.toLocaleString()} (${getPct(absent)}%)`} />
+                    <Row dot="#f59e0b" k="Late" v={`${late.toLocaleString()} (${getPct(late)}%)`} />
+                  </>
+                );
+              })()}
             </div>
-            <button className="w-full text-[12px] font-semibold text-primary hover:underline mt-1">View Full Report →</button>
+            <button onClick={() => navigate({ to: "/admin/attendance" })} className="w-full text-[12px] font-semibold text-primary hover:underline mt-1">View Full Report →</button>
           </div>
         </SectionCard>
 
         <SectionCard title="Attendance Trend" subtitle="Last 7 Days" className="col-span-1 lg:col-span-2">
-          <div className="h-[240px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trend}>
-                <defs>
-                  <linearGradient id="attG" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#7c3aed" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                <XAxis dataKey="d" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} domain={[0, 100]} />
-                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--border))", fontSize: 12 }} />
-                <Area type="monotone" dataKey="v" stroke="#7c3aed" strokeWidth={2.5} fill="url(#attG)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          {(!metrics?.attendanceTrend || metrics.attendanceTrend.length === 0) ? (
+            <div className="h-[240px] flex items-center justify-center text-muted-foreground text-sm">
+              No trend data available
+            </div>
+          ) : (
+            <div className="h-[240px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={metrics.attendanceTrend}>
+                  <defs>
+                    <linearGradient id="attG" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="#7c3aed" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                  <XAxis dataKey="d" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} domain={[0, 100]} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                  <Area type="monotone" dataKey="v" stroke="#7c3aed" strokeWidth={2.5} fill="url(#attG)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </SectionCard>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <SectionCard title="Students by Department" action={<a className="text-[12px] font-semibold text-primary">View Report →</a>}>
-          <div className="flex flex-col sm:flex-row items-center gap-5">
-            <Donut size={170}
-              data={deptDonut}
-              center={<><div className="text-xl font-extrabold">2,450</div><div className="text-[10.5px] text-muted-foreground">Total</div></>}
-            />
-            <Legend items={deptDonut.map(d => ({ label: d.label, value: String(d.value), color: d.color }))} />
-          </div>
+        <SectionCard title="Students by Department" action={<button onClick={() => navigate({ to: "/admin/students" })} className="text-[12px] font-semibold text-primary hover:underline">View Report →</button>}>
+          {(!metrics?.studentsByDepartment || metrics.studentsByDepartment.length === 0) ? (
+            <div className="h-32 flex items-center justify-center text-muted-foreground text-sm">
+              No department data available
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row items-center gap-5">
+              <Donut size={170}
+                data={metrics.studentsByDepartment}
+                center={<><div className="text-xl font-extrabold">{metrics.totalStudents ?? 0}</div><div className="text-[10.5px] text-muted-foreground">Total</div></>}
+              />
+              <Legend items={metrics.studentsByDepartment.map((d: any) => ({ label: d.label, value: String(d.value), color: d.color }))} />
+            </div>
+          )}
         </SectionCard>
 
-        <SectionCard title="Marks Overview" subtitle="(This Semester)" action={<a className="text-[12px] font-semibold text-primary">View Report →</a>}>
+        <SectionCard title="Marks Overview" subtitle="(This Semester)" action={<button onClick={() => navigate({ to: "/admin/reports" })} className="text-[12px] font-semibold text-primary hover:underline">View Report →</button>}>
           <div className="grid grid-cols-2 gap-2 mb-3">
-            <Mini label="Average Marks" value="78.64%" tint="text-emerald-600" />
-            <Mini label="Highest Marks" value="96.20%" tint="text-violet-600" />
-            <Mini label="Lowest Marks" value="45.10%" tint="text-rose-600" />
-            <Mini label="Pass Percentage" value="94.25%" tint="text-sky-600" />
+            <Mini label="Average Marks" value={`${metrics?.marksStats?.avg ?? 0}%`} tint="text-emerald-600" />
+            <Mini label="Highest Marks" value={`${metrics?.marksStats?.max ?? 0}%`} tint="text-violet-600" />
+            <Mini label="Lowest Marks" value={`${metrics?.marksStats?.min ?? 0}%`} tint="text-rose-600" />
+            <Mini label="Pass Percentage" value={`${metrics?.marksStats?.passRate ?? 0}%`} tint="text-sky-600" />
           </div>
-          <div className="h-[160px]">
-            <ResponsiveContainer>
-              <BarChart data={marksBars}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-                <XAxis dataKey="d" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
-                <Bar dataKey="v" fill="#7c3aed" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          {(!metrics?.marksBars || metrics.marksBars.length === 0) ? (
+            <div className="h-[160px] flex items-center justify-center text-muted-foreground text-sm">
+              No marks data available
+            </div>
+          ) : (
+            <div className="h-[160px]">
+              <ResponsiveContainer>
+                <BarChart data={metrics.marksBars}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                  <XAxis dataKey="d" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                  <Bar dataKey="v" fill="#7c3aed" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard title="Quick System Overview">

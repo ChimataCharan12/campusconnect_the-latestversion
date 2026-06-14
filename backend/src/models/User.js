@@ -33,6 +33,19 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    photoUrl: {
+      type: String,
+      default: "",
+    },
+    // Password-reset fields (populated on forgot-password request; cleared after use)
+    passwordResetToken: {
+      type: String,
+      default: null,
+    },
+    passwordResetExpires: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

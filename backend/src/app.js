@@ -15,6 +15,7 @@ import marksRoutes from "./routes/marks.js";
 import notificationRoutes from "./routes/notifications.js";
 import leaveRoutes from "./routes/leaves.js";
 import feeRoutes from "./routes/fees.js";
+import contactRoutes from "./routes/contact.js";
 
 dotenv.config();
 
@@ -22,8 +23,8 @@ const app = express();
 
 // Core middlewares
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Health / root route
 app.get("/", (req, res) => {
@@ -42,6 +43,7 @@ app.use("/api/marks", marksRoutes);         // Student performance/grades
 app.use("/api/notifications", notificationRoutes); // System announcements
 app.use("/api/leaves", leaveRoutes);       // Leave requests
 app.use("/api/fees", feeRoutes);           // Fee invoices and payments
+app.use("/api/contact-admin", contactRoutes); // Contact admin messages
 
 // Global Error Handler (must be last)
 app.use(errorHandler);

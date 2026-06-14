@@ -1,11 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader, StatCard, Card } from "@/components/AppShell";
-import { BarChart3, Target, TrendingUp, Trophy, Download } from "lucide-react";
-import { marks, performanceTrend, gradeDistribution } from "@/lib/mock";
+import { BarChart3, Target, TrendingUp, Trophy, Download, RefreshCw } from "lucide-react";
+import { performanceTrend, gradeDistribution as mockGradeDistribution } from "@/lib/mock";
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { downloadPDF, downloadXLSX } from "@/lib/files";
+import { useEffect, useState, useMemo } from "react";
+import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/student/marks")({ component: Page });
+
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const gradeColor: Record<string, string> = {
   "A+": "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-400/20",
@@ -14,39 +18,137 @@ const gradeColor: Record<string, string> = {
   B: "bg-blue-100 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-400/20",
   C: "bg-amber-100 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-400/20",
   D: "bg-rose-100 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-400/20",
+  F: "bg-rose-100 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-400/20",
 };
 
+interface StudentMark {
+  name: string;
+  code: string;
+  internal: number;
+  external: number;
+  total: number;
+  percentage: number;
+  grade: string;
+  remark: string;
+}
+
 function Page() {
+  const { user } = useAuth();
+  const token = user?.token;
+  const [marks, setMarks] = useState<StudentMark[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!token) return;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const profileRes = await fetch(`${API_BASE}/api/students/profile`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const profileData = await profileRes.json();
+        if (profileData.success && profileData.data?.profile) {
+          const sid = profileData.data.profile._id;
+          const marksRes = await fetch(`${API_BASE}/api/marks/student/${sid}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const marksData = await marksRes.json();
+          if (marksData.success) {
+            setMarks(marksData.data.marks || []);
+          }
+        }
+      } catch (err) {
+        console.error("Error loading marks:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [token]);
+
+  const stats = useMemo(() => {
+    if (marks.length === 0) {
+      return { avg: "0.00%", highest: "—", lowest: "—", highestName: "N/A", lowestName: "N/A" };
+    }
+    const totals = marks.map(m => m.total);
+    const sum = totals.reduce((s, v) => s + v, 0);
+    const avg = `${(sum / marks.length).toFixed(2)}%`;
+    const highestVal = Math.max(...totals);
+    const lowestVal = Math.min(...totals);
+    const highestMarkObj = marks.find(m => m.total === highestVal);
+    const lowestMarkObj = marks.find(m => m.total === lowestVal);
+    return {
+      avg,
+      highest: `${highestVal}/100`,
+      lowest: `${lowestVal}/100`,
+      highestName: highestMarkObj?.name || "N/A",
+      lowestName: lowestMarkObj?.name || "N/A",
+    };
+  }, [marks]);
+
+  const gradeDistribution = useMemo(() => {
+    if (marks.length === 0) return mockGradeDistribution;
+    let excellent = 0;
+    let good = 0;
+    let average = 0;
+    let below = 0;
+
+    marks.forEach(m => {
+      if (m.total >= 80) excellent++;
+      else if (m.total >= 60) good++;
+      else if (m.total >= 40) average++;
+      else below++;
+    });
+
+    return [
+      { name: "Excellent (80%+)", value: excellent, color: "oklch(0.65 0.16 150)" },
+      { name: "Good (60-79%)", value: good, color: "oklch(0.65 0.15 240)" },
+      { name: "Average (40-59%)", value: average, color: "oklch(0.75 0.16 65)" },
+      { name: "Below 40%", value: below, color: "oklch(0.62 0.22 25)" },
+    ];
+  }, [marks]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-muted-foreground flex items-center gap-2">
+          <RefreshCw className="w-5 h-5 animate-spin" /> Loading marks & performance...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader title="Marks & Performance" subtitle="View your subject-wise marks and performance analysis."
         action={
           <div className="flex gap-2">
-            <select className="px-3 py-2 rounded-lg border border-border bg-card text-sm"><option>Semester 4</option></select>
+            <select className="px-3 py-2 rounded-lg border border-border bg-card text-sm"><option>Semester 6</option></select>
             <button
               onClick={() => downloadXLSX("marksheet.xlsx", marks, "Marks")}
               className="h-10 px-3 rounded-lg border border-border bg-card text-sm inline-flex items-center gap-1.5 hover:bg-muted"
             ><Download className="w-4 h-4" /> Excel</button>
             <button
-              onClick={() => downloadPDF("Marksheet - Semester 4", marks.map(m => `${m.name} (${m.code}): ${m.total}/100 — ${m.grade}`).join("\n"), "marksheet.pdf")}
+              onClick={() => downloadPDF("Marksheet - Semester 6", marks.map(m => `${m.name} (${m.code}): ${m.total}/100 — ${m.grade}`).join("\n"), "marksheet.pdf")}
               className="h-10 px-3 rounded-lg bg-gradient-to-r from-[oklch(0.52_0.21_285)] to-[oklch(0.46_0.22_285)] text-white text-sm font-semibold inline-flex items-center gap-1.5 shadow-soft"
             ><Download className="w-4 h-4" /> PDF</button>
           </div>
         } />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={BarChart3} label="Semester Average" value="78.35%" tint="violet" sub="Good" />
-        <StatCard icon={Target} label="Highest Score" value="92/100" tint="emerald" sub="Data Structures" />
-        <StatCard icon={TrendingUp} label="Lowest Score" value="62/100" tint="amber" sub="Discrete Mathematics" />
-        <StatCard icon={Trophy} label="Rank in Class" value="5/60" tint="blue" sub="Top 10%" />
+        <StatCard icon={BarChart3} label="Semester Average" value={stats.avg} tint="violet" sub="Real-time" />
+        <StatCard icon={Target} label="Highest Score" value={stats.highest} tint="emerald" sub={stats.highestName} />
+        <StatCard icon={TrendingUp} label="Lowest Score" value={stats.lowest} tint="amber" sub={stats.lowestName} />
+        <StatCard icon={Trophy} label="Rank in Class" value="N/A" tint="blue" sub="Top 10%" />
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 p-6">
           <div className="flex gap-6 border-b border-border pb-3 mb-4 text-sm">
             <button className="font-semibold text-primary border-b-2 border-primary pb-2 -mb-3">Subject-wise Marks</button>
-            <button className="text-muted-foreground">Performance Analysis</button>
-            <button className="text-muted-foreground">Grade Report</button>
+            {/* Hide unfinished UI tabs */}
+            {/* <button className="text-muted-foreground">Performance Analysis</button> */}
+            {/* <button className="text-muted-foreground">Grade Report</button> */}
           </div>
           <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full text-sm">
@@ -69,7 +171,7 @@ function Page() {
                     <td className="px-4 tabular-nums">{m.external}/60</td>
                     <td className="px-4 font-semibold tabular-nums">{m.total}/100</td>
                     <td className={`px-4 font-bold tabular-nums ${m.total >= 80 ? "text-emerald-600" : m.total >= 70 ? "text-blue-600" : m.total >= 60 ? "text-amber-600" : "text-rose-600"}`}>{m.total}%</td>
-                    <td className="px-4"><span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${gradeColor[m.grade]}`}>{m.grade}</span></td>
+                    <td className="px-4"><span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${gradeColor[m.grade] || "bg-muted text-muted-foreground"}`}>{m.grade}</span></td>
                     <td className={`px-4 text-sm font-medium ${m.total >= 80 ? "text-emerald-600" : m.total >= 70 ? "text-blue-600" : m.total >= 60 ? "text-amber-600" : "text-rose-600"}`}>{m.remark}</td>
                   </tr>
                 ))}

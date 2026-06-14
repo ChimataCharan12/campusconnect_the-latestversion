@@ -3,11 +3,14 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 export type Role = "student" | "faculty" | "parent" | "admin";
 
 export interface AuthUser {
+  id?: string;
   name: string;
   email: string;
   role: Role;
   subtitle: string;
+  token?: string;
   avatar?: string;
+  photoUrl?: string;
 }
 
 interface AuthCtx {

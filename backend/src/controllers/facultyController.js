@@ -38,6 +38,9 @@ export const updateMyProfile = async (req, res, next) => {
       "photoUrl",
       "dateOfBirth",
       "qualification",
+      "gender",
+      "specialization",
+      "experience",
     ];
     const updates = {};
 

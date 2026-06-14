@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 const STUDENT_PHOTO_KEY = "cc_student_photo_v1";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export const Route = createFileRoute("/student/profile")({ component: Page });
 
@@ -23,40 +24,173 @@ const linkMap: Record<string, string> = {
 
 function Page() {
   const { user } = useAuth();
-  const initial = user?.name?.[0] ?? "A";
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
-    name: user?.name ?? "Ananya Sharma",
-    email: user?.email ?? "ananya.sharma@student.edu",
-    phone: "98765 43210",
-    address: "H-23, Green Park, Delhi - 110016",
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    gender: "",
+    dateOfBirth: "",
   });
   const navigate = useNavigate();
+  const [attSummary, setAttSummary] = useState<any>(null);
+
+  useEffect(() => {
+    if (!user?.token) return;
+    setLoading(true);
+    fetch(`${API_BASE}/api/students/profile`, {
+      headers: {
+        "Authorization": `Bearer ${user.token}`,
+      },
+    })
+      .then((res) => res.json())
+      .then(async (res) => {
+        if (res.success && res.data?.profile) {
+          const p = res.data.profile;
+          setProfile(p);
+          setForm({
+            name: p.userId?.name || user?.name || "",
+            email: p.userId?.email || user?.email || "",
+            phone: p.phone || "",
+            address: p.address || "",
+            gender: p.gender || "",
+            dateOfBirth: p.dateOfBirth ? new Date(p.dateOfBirth).toISOString().split("T")[0] : "",
+          });
+          setPhotoUrl(p.photoUrl || null);
+
+          try {
+            const summaryRes = await fetch(`${API_BASE}/api/attendance/summary/${p._id}`, {
+              headers: { Authorization: `Bearer ${user.token}` },
+            });
+            const summaryData = await summaryRes.json();
+            if (summaryData.success) {
+              setAttSummary(summaryData.data);
+            }
+          } catch (err) {
+            console.error("Error fetching student attendance summary:", err);
+          }
+        }
+      })
+      .catch((err) => console.error("Error fetching student profile:", err))
+      .finally(() => setLoading(false));
+  }, [user?.token, user?.name, user?.email]);
+
+  const initial = form.name?.[0] ?? "S";
 
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const photoRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    try { const p = localStorage.getItem(STUDENT_PHOTO_KEY); if (p) setPhotoUrl(p); } catch {}
-  }, []);
+
   const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; if (!f) return;
     const r = new FileReader();
-    r.onload = () => {
+    r.onload = async () => {
       const url = String(r.result);
-      try { localStorage.setItem(STUDENT_PHOTO_KEY, url); } catch {}
       setPhotoUrl(url);
-      toast.success("Profile photo updated");
+      try {
+        const res = await fetch(`${API_BASE}/api/students/profile`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${user?.token}`,
+          },
+          body: JSON.stringify({ photoUrl: url }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          toast.success("Profile photo updated");
+        } else {
+          toast.error("Failed to save photo");
+        }
+      } catch (err) {
+        console.error(err);
+        toast.error("Error saving photo");
+      }
     };
     r.readAsDataURL(f);
   };
 
-  const save = () => { setEditing(false); toast.success("Profile updated"); };
-  const cancel = () => { setEditing(false); toast("Changes discarded"); };
+  const onRemovePhoto = async () => {
+    setPhotoUrl(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/students/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${user?.token}`,
+        },
+        body: JSON.stringify({ photoUrl: "" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Profile photo removed");
+      } else {
+        toast.error("Failed to remove photo");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Error removing photo");
+    }
+  };
+
+  const save = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/students/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${user?.token}`,
+        },
+        body: JSON.stringify({
+          phone: form.phone,
+          address: form.address,
+          gender: form.gender,
+          dateOfBirth: form.dateOfBirth || null,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setProfile(data.data.profile);
+        setEditing(false);
+        toast.success("Profile updated successfully");
+      } else {
+        toast.error(data.message || "Failed to update profile");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("An error occurred while updating profile");
+    }
+  };
+
+  const cancel = () => {
+    if (profile) {
+      setForm({
+        name: profile.userId?.name || user?.name || "",
+        email: profile.userId?.email || user?.email || "",
+        phone: profile.phone || "",
+        address: profile.address || "",
+        gender: profile.gender || "",
+        dateOfBirth: profile.dateOfBirth ? new Date(profile.dateOfBirth).toISOString().split("T")[0] : "",
+      });
+    }
+    setEditing(false);
+    toast("Changes discarded");
+  };
 
   const startEdit = () => {
     setEditing(true);
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -96,32 +230,43 @@ function Page() {
               <button onClick={() => photoRef.current?.click()} className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-card border border-border shadow-soft flex items-center justify-center hover:bg-muted" aria-label="Change photo">
                 <Camera className="w-4 h-4 text-primary" />
               </button>
+              {photoUrl && (
+                <button onClick={onRemovePhoto} className="absolute bottom-1 left-1 w-9 h-9 rounded-full bg-card border border-border shadow-soft flex items-center justify-center hover:bg-rose-50 text-rose-500 hover:text-rose-600 transition-colors" aria-label="Remove photo">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
               <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={onPickPhoto} />
             </div>
             <div className="flex-1 min-w-0 text-center sm:text-left">
               <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start">
-                {editing ? (
-                  <input value={form.name} onChange={e => setForm(s => ({ ...s, name: e.target.value }))} className="text-2xl font-extrabold bg-muted/40 border border-border rounded-lg px-2 py-1 outline-none focus:border-primary" />
-                ) : (
-                  <h2 className="text-2xl font-extrabold">{form.name}</h2>
-                )}
+                <h2 className="text-2xl font-extrabold">{form.name}</h2>
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold">Active Student</span>
               </div>
               <dl className="mt-4 space-y-2.5 text-sm">
                 {[
-                  { i: Hash, k: "Roll No.", v: "23CSE045", key: null as null | "name" },
-                  { i: Mail, k: "Email", v: form.email, key: "email" as const },
-                  { i: Phone, k: "Phone", v: form.phone, key: "phone" as const },
-                  { i: Calendar, k: "Date of Birth", v: "15 Aug 2004", key: null },
-                  { i: User, k: "Gender", v: "Female", key: null },
-                  { i: MapPin, k: "Address", v: form.address, key: "address" as const },
+                  { i: Hash, k: "Roll No.", v: profile?.rollNumber || "N/A", key: null, type: "text" },
+                  { i: Mail, k: "Email", v: form.email, key: null, type: "text" },
+                  { i: Phone, k: "Phone", v: form.phone, key: "phone" as const, type: "text" },
+                  { i: Calendar, k: "Date of Birth", v: form.dateOfBirth ? new Date(form.dateOfBirth).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "N/A", key: "dateOfBirth" as const, type: "date" },
+                  { i: User, k: "Gender", v: form.gender === "M" ? "Male" : form.gender === "F" ? "Female" : form.gender || "N/A", key: "gender" as const, type: "select" },
+                  { i: MapPin, k: "Address", v: form.address, key: "address" as const, type: "text" },
                 ].map(f => (
                   <div key={f.k} className="flex items-start gap-3">
                     <f.i className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
                     <div className="flex-1 grid grid-cols-[110px_1fr] gap-2">
                       <span className="text-muted-foreground">{f.k}</span>
                       {editing && f.key ? (
-                        <input value={(form as any)[f.key]} onChange={e => setForm(s => ({ ...s, [f.key as string]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium" />
+                        f.type === "date" ? (
+                          <input type="date" value={(form as any)[f.key]} onChange={e => setForm(s => ({ ...s, [f.key as string]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium w-full" />
+                        ) : f.type === "select" ? (
+                          <select value={(form as any)[f.key]} onChange={e => setForm(s => ({ ...s, [f.key as string]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium w-full">
+                            <option value="">Select Gender</option>
+                            <option value="M">Male</option>
+                            <option value="F">Female</option>
+                          </select>
+                        ) : (
+                          <input value={(form as any)[f.key]} onChange={e => setForm(s => ({ ...s, [f.key as string]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium w-full" />
+                        )
                       ) : (
                         <span className="font-medium text-foreground">{f.v}</span>
                       )}
@@ -137,11 +282,11 @@ function Page() {
             <dl className="space-y-3 text-sm">
               {[
                 { i: GraduationCap, k: "Program", v: "B.Tech" },
-                { i: Building2, k: "Branch", v: "Computer Science & Engineering" },
-                { i: BookOpen, k: "Year / Semester", v: "3rd Year / Semester 6" },
-                { i: User, k: "Section", v: "A" },
-                { i: Calendar, k: "Academic Session", v: "2024 - 2025" },
-                { i: Hash, k: "Enrollment No.", v: "CS2023A045" },
+                { i: Building2, k: "Branch", v: profile?.branch || "N/A" },
+                { i: BookOpen, k: "Year / Semester", v: `${profile?.year ? profile.year + (profile.year === 1 ? "st" : profile.year === 2 ? "nd" : profile.year === 3 ? "rd" : "th") + " Year" : "N/A"} / Semester ${profile?.semester || "N/A"}` },
+                { i: User, k: "Section", v: profile?.section || "N/A" },
+                { i: Calendar, k: "Academic Session", v: "2025 - 2026" },
+                { i: Hash, k: "Enrollment No.", v: profile?.rollNumber || "N/A" },
               ].map(f => (
                 <div key={f.k} className="flex items-start gap-3">
                   <f.i className="w-4 h-4 text-primary mt-0.5 shrink-0" />
@@ -165,9 +310,17 @@ function Page() {
           </div>
           <div className="grid grid-cols-3 gap-2">
             {[
-              { i: CalendarCheck, label: "Overall Attendance", value: "82%", sub: "Good", tint: "from-emerald-500 to-emerald-400 text-emerald-600" },
-              { i: BarChart3, label: "Current CGPA", value: "8.24", sub: "Good", tint: "from-blue-500 to-blue-400 text-blue-600" },
-              { i: Trophy, label: "Current Rank", value: "5/60", sub: "Top 10%", tint: "from-violet-500 to-violet-400 text-primary" },
+              { 
+                i: CalendarCheck, 
+                label: "Overall Attendance", 
+                value: attSummary && attSummary.totalClasses > 0 ? `${Math.round(attSummary.overallPercentage)}%` : "0%", 
+                sub: attSummary && attSummary.totalClasses > 0 ? (attSummary.overallPercentage >= 75 ? "Good" : "At Risk") : "No logs", 
+                tint: attSummary && attSummary.totalClasses > 0 
+                  ? (attSummary.overallPercentage >= 75 ? "from-emerald-500 to-emerald-400 text-emerald-600" : "from-rose-500 to-rose-400 text-rose-600")
+                  : "from-gray-500 to-gray-400 text-muted-foreground"
+              },
+              { i: BarChart3, label: "Current CGPA", value: profile?.cgpa?.toFixed(2) || "0.00", sub: "GPA", tint: "from-blue-500 to-blue-400 text-blue-600" },
+              { i: Trophy, label: "Current Rank", value: "N/A", sub: "Rank", tint: "from-violet-500 to-violet-400 text-primary" },
             ].map(s => (
               <div key={s.label} className="rounded-2xl p-3 bg-muted/40 border border-border text-center">
                 <s.i className={`w-5 h-5 mx-auto ${s.tint.split(" ").pop()}`} />
@@ -197,12 +350,10 @@ function Page() {
           <h3 className="font-bold mb-4">Parent / Guardian</h3>
           <dl className="space-y-2.5 text-sm">
             {[
-              { k: "Father Name", v: "Rajesh Sharma" },
-              { k: "Father Contact", v: "98765 11111" },
-              { k: "Mother Name", v: "Neha Sharma" },
-              { k: "Mother Contact", v: "98765 22222" },
-              { k: "Guardian Email", v: "rajesh.sharma@email.com" },
-              { k: "Relationship", v: "Father" },
+              { k: "Father / Guardian Name", v: profile?.parentId?.userId?.name || "N/A" },
+              { k: "Contact Number", v: profile?.parentId?.phone || "N/A" },
+              { k: "Relationship", v: profile?.parentId?.relation || "Guardian" },
+              { k: "Email", v: profile?.parentId?.userId?.email || "N/A" },
             ].map(f => (
               <div key={f.k} className="grid grid-cols-[120px_1fr] gap-2">
                 <span className="text-muted-foreground">{f.k}</span>
@@ -219,11 +370,10 @@ function Page() {
           </div>
           <dl className="space-y-2.5 text-sm">
             {[
-              { i: CircleUser, k: "Username", v: "ananya.sharma" },
-              { i: Mail, k: "Email", v: user?.email ?? "ananya.sharma@student.edu" },
+              { i: CircleUser, k: "Username", v: profile?.userId?.username || "N/A" },
+              { i: Mail, k: "Email", v: user?.email ?? "N/A" },
               { i: Shield, k: "Account Status", v: <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold">Active</span> },
-              { i: Calendar, k: "Member Since", v: "10 Aug 2023" },
-              { i: Calendar, k: "Last Login", v: "Today, 09:15 AM" },
+              { i: Calendar, k: "Member Since", v: profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "N/A" },
             ].map(f => (
               <div key={f.k} className="flex items-start gap-3">
                 <f.i className="w-4 h-4 text-muted-foreground mt-0.5" />
@@ -242,16 +392,15 @@ function Page() {
           <h3 className="font-bold mb-4">Academic Details</h3>
           <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
             {[
-              ["Department", "Computer Science & Engineering"],
+              ["Department", profile?.branch || "N/A"],
               ["Program", "B.Tech"],
-              ["Year", "3rd Year"],
-              ["Semester", "Semester 6"],
-              ["Section", "A"],
-              ["Admission Number", "CS2023A045"],
-              ["Admission Year", "2023"],
-              ["Academic Session", "2024 - 2025"],
-              ["Advisor", "Dr. Priya Sharma"],
-              ["Mentor", "Prof. Amit Verma"],
+              ["Year", profile?.year ? `${profile.year} Year` : "N/A"],
+              ["Semester", profile?.semester ? `Semester ${profile.semester}` : "N/A"],
+              ["Section", profile?.section || "N/A"],
+              ["Admission Number", profile?.rollNumber || "N/A"],
+              ["Admission Year", profile?.admissionYear || "N/A"],
+              ["Academic Session", "2025 - 2026"],
+              ["Status", "Active"],
             ].map(([k, v]) => (
               <div key={k} className="grid grid-cols-[140px_1fr] gap-2">
                 <span className="text-muted-foreground">{k}</span>

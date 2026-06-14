@@ -56,6 +56,11 @@ const studentSchema = new mongoose.Schema(
     dateOfBirth: {
       type: Date,
     },
+    gender: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     photoUrl: {
       type: String,
       default: "",

@@ -16,6 +16,7 @@ export const Route = createFileRoute("/parent/profile")({ component: Page });
 
 const LS_KEY = "cc_parent_profile_v1";
 const PHOTO_KEY = "cc_parent_photo_v1";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 interface ParentForm {
   name: string;
@@ -43,6 +44,8 @@ const defaultForm: ParentForm = {
 
 function Page() {
   const { user } = useAuth();
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<ParentForm>(defaultForm);
   const [editing, setEditing] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -50,49 +53,145 @@ function Page() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (!user?.token) return;
+    fetch(`${API_BASE}/api/parents/profile`, {
+      headers: {
+        "Authorization": `Bearer ${user.token}`,
+      },
+    })
+      .then((res) => res.json())
+      .then((res) => {
+        if (res.success && res.data?.profile) {
+          const p = res.data.profile;
+          setProfile(p);
+          setForm({
+            name: p.userId?.name || user?.name || "",
+            parentId: p._id || "",
+            email: p.userId?.email || user?.email || "",
+            phone: p.phone || "",
+            altPhone: p.alternatePhone || "",
+            address: p.address || "",
+            occupation: p.occupation || "",
+            relationship: p.relation || "Parent",
+            username: p.userId?.username || "",
+          });
+          setPhoto(p.photoUrl || null);
+        }
+      })
+      .catch((err) => console.error("Error fetching parent profile:", err))
+      .finally(() => setLoading(false));
+  }, [user?.token, user?.name, user?.email]);
+
+  const save = async () => {
     try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) setForm({ ...defaultForm, ...JSON.parse(raw) });
-      const p = localStorage.getItem(PHOTO_KEY);
-      if (p) setPhoto(p);
-    } catch {}
-  }, []);
-
-  const persist = (next: ParentForm) => {
-    localStorage.setItem(LS_KEY, JSON.stringify(next));
-    setForm(next);
+      const res = await fetch(`${API_BASE}/api/parents/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${user?.token}`,
+        },
+        body: JSON.stringify({
+          phone: form.phone,
+          alternatePhone: form.altPhone,
+          address: form.address,
+          occupation: form.occupation,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setProfile(data.data.profile);
+        setEditing(false);
+        toast.success("Profile updated successfully");
+      } else {
+        toast.error(data.message || "Failed to update profile");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("An error occurred while updating profile");
+    }
   };
 
-  const save = () => {
-    persist(form);
-    setEditing(false);
-    toast.success("Profile updated successfully");
-  };
   const cancel = () => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      setForm(raw ? { ...defaultForm, ...JSON.parse(raw) } : defaultForm);
-    } catch {
-      setForm(defaultForm);
+    if (profile) {
+      setForm({
+        name: profile.userId?.name || user?.name || "",
+        parentId: profile._id || "",
+        email: profile.userId?.email || user?.email || "",
+        phone: profile.phone || "",
+        altPhone: profile.alternatePhone || "",
+        address: profile.address || "",
+        occupation: profile.occupation || "",
+        relationship: profile.relation || "Parent",
+        username: profile.userId?.username || "",
+      });
     }
     setEditing(false);
+    toast("Changes discarded");
   };
 
   const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const url = String(reader.result);
-      try { localStorage.setItem(PHOTO_KEY, url); } catch {}
       setPhoto(url);
-      toast.success("Profile photo updated");
+      try {
+        const res = await fetch(`${API_BASE}/api/parents/profile`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${user?.token}`,
+          },
+          body: JSON.stringify({ photoUrl: url }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          toast.success("Profile photo updated");
+        } else {
+          toast.error("Failed to save photo");
+        }
+      } catch (err) {
+        console.error(err);
+        toast.error("Error saving photo");
+      }
     };
     reader.readAsDataURL(f);
   };
 
-  const initials = form.name.split(" ").map(n => n[0]).slice(0, 2).join("").toUpperCase();
-  const displayEmail = user?.email ?? form.email;
+  const onRemovePhoto = async () => {
+    setPhoto(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/parents/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${user?.token}`,
+        },
+        body: JSON.stringify({ photoUrl: "" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Profile photo removed");
+      } else {
+        toast.error("Failed to remove photo");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Error removing photo");
+    }
+  };
+
+  const initials = form.name ? form.name.split(" ").map(n => n[0]).slice(0, 2).join("").toUpperCase() : "P";
+  const displayEmail = form.email;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -132,21 +231,22 @@ function Page() {
               <button onClick={() => fileRef.current?.click()} className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-card border border-border shadow-soft flex items-center justify-center hover:bg-muted" aria-label="Change photo">
                 <Camera className="w-4 h-4 text-primary" />
               </button>
+              {photo && (
+                <button onClick={onRemovePhoto} className="absolute bottom-1 left-1 w-9 h-9 rounded-full bg-card border border-border shadow-soft flex items-center justify-center hover:bg-rose-50 text-rose-500 hover:text-rose-600 transition-colors" aria-label="Remove photo">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
               <input ref={fileRef} onChange={onPickPhoto} type="file" accept="image/*" className="hidden" />
             </div>
             <div className="flex-1 min-w-0 text-center sm:text-left">
               <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start">
-                {editing ? (
-                  <input value={form.name} onChange={e => setForm(s => ({ ...s, name: e.target.value }))} className="text-2xl font-extrabold bg-muted/40 border border-border rounded-lg px-2 py-1 outline-none focus:border-primary" />
-                ) : (
-                  <h2 className="text-2xl font-extrabold">{form.name}</h2>
-                )}
+                <h2 className="text-2xl font-extrabold">{form.name}</h2>
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 font-semibold">Verified Parent</span>
               </div>
               <p className="text-muted-foreground text-sm mt-1">Parent ID: {form.parentId}</p>
               <dl className="mt-4 space-y-2.5 text-sm">
                 {([
-                  { i: Mail, k: "Email", key: "email" as const },
+                  { i: Mail, k: "Email", key: "email" as const, ro: true },
                   { i: Phone, k: "Phone", key: "phone" as const },
                   { i: Phone, k: "Alternate Phone", key: "altPhone" as const },
                   { i: MapPin, k: "Address", key: "address" as const },
@@ -155,7 +255,7 @@ function Page() {
                     <f.i className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
                     <div className="flex-1 grid grid-cols-[120px_1fr] gap-2">
                       <span className="text-muted-foreground">{f.k}</span>
-                      {editing ? (
+                      {editing && !f.ro ? (
                         <input value={form[f.key]} onChange={e => setForm(s => ({ ...s, [f.key]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium" />
                       ) : (
                         <span className="font-medium text-foreground">{form[f.key]}</span>
@@ -171,9 +271,9 @@ function Page() {
             <h3 className="font-bold mb-4">Personal Information</h3>
             <dl className="space-y-3 text-sm">
               {([
-                { i: User, k: "Full Name", key: "name" as const },
+                { i: User, k: "Full Name", key: "name" as const, ro: true },
                 { i: Hash, k: "Parent ID", key: "parentId" as const, ro: true },
-                { i: Users, k: "Relationship", key: "relationship" as const },
+                { i: Users, k: "Relationship", key: "relationship" as const, ro: true },
                 { i: Briefcase, k: "Occupation", key: "occupation" as const },
                 { i: Calendar, k: "Joined Portal", v: "12 Aug 2023", ro: true as const },
               ]).map((f: any) => (
@@ -201,43 +301,42 @@ function Page() {
             <h3 className="font-bold flex items-center gap-2"><GraduationCap className="w-4 h-4 text-primary" /> Child Information</h3>
             <Link to="/parent" className="text-xs font-semibold text-primary hover:underline">Open Dashboard</Link>
           </div>
-          <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
-            {[
-              ["Student Name", "Ananya Sharma"],
-              ["Roll Number", "23CSE045"],
-              ["Branch", "Computer Science & Engineering"],
-              ["Section", "A"],
-              ["Year / Semester", "3rd Year / Semester 6"],
-              ["Admission Year", "2023"],
-            ].map(([k, v]) => (
-              <div key={k} className="grid grid-cols-[140px_1fr] gap-2">
-                <span className="text-muted-foreground">{k}</span>
-                <span className="font-medium">{v}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <Stat to="/parent/attendance" icon={CalendarCheck} label="Attendance" value="82%" tint="text-emerald-600 dark:text-emerald-300" />
-            <Stat to="/parent/performance" icon={BarChart3} label="Avg Marks" value="78.35%" tint="text-blue-600 dark:text-blue-300" />
-            <Stat to="/parent/performance" icon={GraduationCap} label="CGPA" value="8.24" tint="text-violet-600 dark:text-violet-300" />
-            <Stat to="/parent/performance" icon={BookOpen} label="Rank" value="5 / 60" tint="text-amber-600 dark:text-amber-300" />
+          <div className="space-y-6">
+            {profile?.children && profile.children.length > 0 ? (
+              profile.children.map((child: any) => (
+                <div key={child._id} className="border-t border-border pt-4 first:border-t-0 first:pt-0">
+                  <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                    {[
+                      ["Student Name", child.userId?.name || "N/A"],
+                      ["Roll Number", child.rollNumber || "N/A"],
+                      ["Branch", child.branch || "N/A"],
+                      ["Section", child.section || "N/A"],
+                      ["Year / Semester", `${child.year ? child.year + (child.year === 1 ? "st" : child.year === 2 ? "nd" : child.year === 3 ? "rd" : "th") + " Year" : "N/A"} / Semester ${child.semester || "N/A"}`],
+                      ["Admission Year", child.admissionYear || "N/A"],
+                    ].map(([k, v]) => (
+                      <div key={k} className="grid grid-cols-[140px_1fr] gap-2">
+                        <span className="text-muted-foreground">{k}</span>
+                        <span className="font-medium">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-muted-foreground text-sm">No linked children found.</div>
+            )}
           </div>
         </Card>
 
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold">Account Information</h3>
-            <button onClick={() => setEditing(true)} className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1">
-              <Edit className="w-3 h-3" /> Edit
-            </button>
           </div>
           <dl className="space-y-2.5 text-sm">
             {([
               { i: CircleUser, k: "Username", v: form.username },
               { i: Mail, k: "Email", v: displayEmail },
               { i: Shield, k: "Status", v: <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 font-semibold">Active</span> },
-              { i: Calendar, k: "Member Since", v: "12 Aug 2023" },
-              { i: Calendar, k: "Last Login", v: "Today, 09:15 AM" },
             ] as const).map(f => (
               <div key={f.k} className="flex items-start gap-3">
                 <f.i className="w-4 h-4 text-muted-foreground mt-0.5" />

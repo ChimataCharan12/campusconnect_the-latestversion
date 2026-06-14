@@ -5,7 +5,7 @@ import {
   GraduationCap, BookOpen, Trophy, ChevronRight, Shield, CircleUser, Building2, Award, Briefcase,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { toast } from "sonner";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
@@ -15,6 +15,7 @@ export const Route = createFileRoute("/faculty/profile")({ component: Page });
 
 const LS_KEY = "cc_faculty_profile_v1";
 const PHOTO_KEY = "cc_faculty_photo_v1";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 interface Form {
   name: string; facultyId: string; email: string; phone: string;
@@ -25,59 +26,193 @@ interface Form {
 }
 
 const defaults: Form = {
-  name: "Dr. Priya Sharma", facultyId: "FAC2025007", email: "priya@campus.edu",
-  phone: "98765 43210", dob: "12 Mar 1985", gender: "Female",
-  address: "A-15, Vasant Kunj, Delhi - 110070",
-  department: "Computer Science & Engineering", designation: "Associate Professor",
-  qualification: "Ph.D in Computer Science", specialization: "Database Systems, AI",
-  experience: "12 Years", joined: "10 Aug 2013", username: "priya.sharma",
+  name: "", facultyId: "", email: "",
+  phone: "", dob: "", gender: "",
+  address: "",
+  department: "", designation: "",
+  qualification: "", specialization: "",
+  experience: "", joined: "", username: "",
 };
 
 function Page() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<Form>(defaults);
   const [editing, setEditing] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
   const [pwOpen, setPwOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) setForm({ ...defaults, ...JSON.parse(raw) });
-      const p = localStorage.getItem(PHOTO_KEY);
-      if (p) setPhoto(p);
-    } catch {}
-  }, []);
+  const [slots, setSlots] = useState<any[]>([]);
+  const [students, setStudents] = useState<any[]>([]);
 
-  const save = () => {
-    localStorage.setItem(LS_KEY, JSON.stringify(form));
-    setEditing(false);
-    toast.success("Profile updated successfully");
+  useEffect(() => {
+    if (!user?.token) return;
+    setLoading(true);
+    const headers = { Authorization: `Bearer ${user.token}` };
+    Promise.all([
+      fetch(`${API_BASE}/api/faculty/profile`, { headers }).then((res) => res.json()),
+      fetch(`${API_BASE}/api/timetable`, { headers }).then((res) => res.json()),
+      fetch(`${API_BASE}/api/students`, { headers }).then((res) => res.json()),
+    ])
+      .then(([profileRes, slotsRes, studentsRes]) => {
+        if (profileRes.success && profileRes.data?.profile) {
+          const p = profileRes.data.profile;
+          setProfile(p);
+          setForm({
+            name: p.userId?.name || user?.name || "",
+            facultyId: p.employeeId || "",
+            email: p.userId?.email || user?.email || "",
+            phone: p.phone || "",
+            dob: p.dateOfBirth ? new Date(p.dateOfBirth).toISOString().split("T")[0] : "",
+            gender: p.gender || "",
+            address: p.address || "",
+            department: p.department || "",
+            designation: p.designation || "",
+            qualification: p.qualification || "",
+            specialization: p.specialization || "",
+            experience: p.experience !== undefined && p.experience !== null ? String(p.experience) : "",
+            joined: p.joiningDate ? new Date(p.joiningDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "",
+            username: p.userId?.username || "",
+          });
+          setPhoto(p.photoUrl || null);
+        }
+        if (slotsRes.success && slotsRes.data?.slots) {
+          setSlots(slotsRes.data.slots);
+        }
+        if (studentsRes.success && studentsRes.data?.students) {
+          setStudents(studentsRes.data.students);
+        }
+      })
+      .catch((err) => console.error("Error fetching faculty profile data:", err))
+      .finally(() => setLoading(false));
+  }, [user?.token, user?.name, user?.email]);
+
+  const assignedClasses = useMemo(() => {
+    const set = new Set<string>();
+    slots.forEach((s: any) => {
+      set.add(`${s.branch}|${s.section}|${s.year}`);
+    });
+    return set;
+  }, [slots]);
+
+  const totalStudentsCount = useMemo(() => {
+    if (assignedClasses.size === 0) return 0;
+    return students.filter((s: any) => {
+      return assignedClasses.has(`${s.branch}|${s.section}|${s.year}`);
+    }).length;
+  }, [students, assignedClasses]);
+
+  const save = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/faculty/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${user?.token}`,
+        },
+        body: JSON.stringify({
+          phone: form.phone,
+          address: form.address,
+          qualification: form.qualification,
+          gender: form.gender,
+          dateOfBirth: form.dob || null,
+          specialization: form.specialization,
+          experience: form.experience ? Number(form.experience) : null,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setProfile(data.data.profile);
+        setEditing(false);
+        toast.success("Profile updated successfully");
+      } else {
+        toast.error(data.message || "Failed to update profile");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("An error occurred while updating profile");
+    }
   };
   const cancel = () => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      setForm(raw ? { ...defaults, ...JSON.parse(raw) } : defaults);
-    } catch { setForm(defaults); }
+    if (profile) {
+      setForm({
+        name: profile.userId?.name || user?.name || "",
+        facultyId: profile.employeeId || "",
+        email: profile.userId?.email || user?.email || "",
+        phone: profile.phone || "",
+        dob: profile.dateOfBirth ? new Date(profile.dateOfBirth).toISOString().split("T")[0] : "",
+        gender: profile.gender || "",
+        address: profile.address || "",
+        department: profile.department || "",
+        designation: profile.designation || "",
+        qualification: profile.qualification || "",
+        specialization: profile.specialization || "",
+        experience: profile.experience !== undefined && profile.experience !== null ? String(profile.experience) : "",
+        joined: profile.joiningDate ? new Date(profile.joiningDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "",
+        username: profile.userId?.username || "",
+      });
+    }
     setEditing(false);
+    toast("Changes discarded");
   };
 
   const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; if (!f) return;
     const r = new FileReader();
-    r.onload = () => {
+    r.onload = async () => {
       const url = String(r.result);
-      try { localStorage.setItem(PHOTO_KEY, url); } catch {}
       setPhoto(url);
-      toast.success("Profile photo updated");
+      try {
+        const res = await fetch(`${API_BASE}/api/faculty/profile`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${user?.token}`,
+          },
+          body: JSON.stringify({ photoUrl: url }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          toast.success("Profile photo updated");
+        } else {
+          toast.error("Failed to save photo");
+        }
+      } catch (err) {
+        console.error(err);
+        toast.error("Error saving photo");
+      }
     };
     r.readAsDataURL(f);
   };
 
-  const initial = (user?.name ?? form.name)?.[0] ?? "P";
-  const displayEmail = user?.email ?? form.email;
+  const onRemovePhoto = async () => {
+    setPhoto(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/faculty/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${user?.token}`,
+        },
+        body: JSON.stringify({ photoUrl: "" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Profile photo removed");
+      } else {
+        toast.error("Failed to remove photo");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Error removing photo");
+    }
+  };
+
+  const initial = form.name?.[0] ?? "F";
+  const displayEmail = form.email;
 
   const linkMap: Record<string, string> = {
     "View My Timetable": "/faculty/timetable",
@@ -89,26 +224,32 @@ function Page() {
   };
 
   const personalFields = [
-    { i: Hash, k: "Faculty ID", key: "facultyId" as const, ro: true },
-    { i: Mail, k: "Email", key: "email" as const },
-    { i: Phone, k: "Phone", key: "phone" as const },
-    { i: Calendar, k: "Date of Birth", key: "dob" as const },
-    { i: User, k: "Gender", key: "gender" as const },
-    { i: MapPin, k: "Address", key: "address" as const },
+    { i: Hash, k: "Faculty ID", key: "facultyId" as const, ro: true, v: form.facultyId },
+    { i: Mail, k: "Email", key: "email" as const, ro: true, v: form.email },
+    { i: Phone, k: "Phone", key: "phone" as const, v: form.phone },
+    { i: Calendar, k: "Date of Birth", key: "dob" as const, v: form.dob ? new Date(form.dob).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "N/A", type: "date" },
+    { i: User, k: "Gender", key: "gender" as const, v: form.gender === "M" ? "Male" : form.gender === "F" ? "Female" : form.gender || "N/A", type: "select" },
+    { i: MapPin, k: "Address", key: "address" as const, v: form.address },
   ];
 
   const profFields = [
-    { i: Building2, k: "Department", key: "department" as const },
-    { i: Briefcase, k: "Designation", key: "designation" as const },
-    { i: GraduationCap, k: "Qualification", key: "qualification" as const },
-    { i: BookOpen, k: "Specialization", key: "specialization" as const },
-    { i: Award, k: "Experience", key: "experience" as const, ro: true },
-    { i: Calendar, k: "Joined", key: "joined" as const, ro: true },
+    { i: Building2, k: "Department", key: "department" as const, ro: true, v: form.department },
+    { i: Briefcase, k: "Designation", key: "designation" as const, ro: true, v: form.designation },
+    { i: GraduationCap, k: "Qualification", key: "qualification" as const, v: form.qualification },
+    { i: BookOpen, k: "Specialization", key: "specialization" as const, v: form.specialization || "N/A" },
+    { i: Award, k: "Experience", key: "experience" as const, v: form.experience ? `${form.experience} Years` : "N/A", type: "number" },
+    { i: Calendar, k: "Joined", key: "joined" as const, ro: true, v: form.joined || "N/A" },
   ];
 
-  // Consistent button class for the two action buttons (fixes hover bug):
-  // both share the outlined→fill hover style so they look identical.
   const actionBtn = "py-2 text-center rounded-xl text-sm font-semibold border border-primary/30 text-primary hover:bg-primary hover:text-white hover:shadow-glow-violet active:scale-[0.98] transition-all";
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -145,15 +286,16 @@ function Page() {
               <button onClick={() => fileRef.current?.click()} className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-card border border-border shadow-soft flex items-center justify-center hover:bg-muted" aria-label="Change photo">
                 <Camera className="w-4 h-4 text-primary" />
               </button>
+              {photo && (
+                <button onClick={onRemovePhoto} className="absolute bottom-1 left-1 w-9 h-9 rounded-full bg-card border border-border shadow-soft flex items-center justify-center hover:bg-rose-50 text-rose-500 hover:text-rose-600 transition-colors" aria-label="Remove photo">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickPhoto} />
             </div>
             <div className="flex-1 min-w-0 text-center sm:text-left">
               <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start">
-                {editing ? (
-                  <input value={form.name} onChange={e => setForm(s => ({ ...s, name: e.target.value }))} className="text-2xl font-extrabold bg-muted/40 border border-border rounded-lg px-2 py-1 outline-none focus:border-primary" />
-                ) : (
-                  <h2 className="text-2xl font-extrabold">{user?.name ?? form.name}</h2>
-                )}
+                <h2 className="text-2xl font-extrabold">{form.name}</h2>
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 font-semibold">Active Faculty</span>
               </div>
               <dl className="mt-4 space-y-2.5 text-sm">
@@ -163,9 +305,19 @@ function Page() {
                     <div className="flex-1 grid grid-cols-[120px_1fr] gap-2">
                       <span className="text-muted-foreground">{f.k}</span>
                       {editing && !f.ro ? (
-                        <input value={form[f.key]} onChange={e => setForm(s => ({ ...s, [f.key]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium" />
+                        f.type === "date" ? (
+                          <input type="date" value={form[f.key]} onChange={e => setForm(s => ({ ...s, [f.key]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium w-full" />
+                        ) : f.type === "select" ? (
+                          <select value={form[f.key]} onChange={e => setForm(s => ({ ...s, [f.key]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium w-full">
+                            <option value="">Select Gender</option>
+                            <option value="M">Male</option>
+                            <option value="F">Female</option>
+                          </select>
+                        ) : (
+                          <input value={form[f.key]} onChange={e => setForm(s => ({ ...s, [f.key]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium w-full" />
+                        )
                       ) : (
-                        <span className="font-medium text-foreground">{form[f.key]}</span>
+                        <span className="font-medium text-foreground">{f.v}</span>
                       )}
                     </div>
                   </div>
@@ -183,9 +335,13 @@ function Page() {
                   <div className="flex-1 grid grid-cols-[140px_1fr] gap-2">
                     <span className="text-muted-foreground">{f.k}</span>
                     {editing && !f.ro ? (
-                      <input value={form[f.key]} onChange={e => setForm(s => ({ ...s, [f.key]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium" />
+                      f.type === "number" ? (
+                        <input type="number" min="0" value={form[f.key]} onChange={e => setForm(s => ({ ...s, [f.key]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium w-full" />
+                      ) : (
+                        <input value={form[f.key]} onChange={e => setForm(s => ({ ...s, [f.key]: e.target.value }))} className="bg-muted/40 border border-border rounded-md px-2 py-1 outline-none focus:border-primary font-medium w-full" />
+                      )
                     ) : (
-                      <span className="font-medium">{form[f.key]}</span>
+                      <span className="font-medium text-foreground">{f.v}</span>
                     )}
                   </div>
                 </div>
@@ -200,9 +356,9 @@ function Page() {
           <h3 className="font-bold mb-4">Teaching Summary</h3>
           <div className="grid grid-cols-3 gap-2">
             {[
-              { i: BookOpen, label: "Subjects", value: "4", tint: "text-violet-600 dark:text-violet-300" },
-              { i: GraduationCap, label: "Sections", value: "6", tint: "text-emerald-600 dark:text-emerald-300" },
-              { i: Trophy, label: "Total Students", value: "240", tint: "text-blue-600 dark:text-blue-300" },
+              { i: BookOpen, label: "Subjects", value: profile?.subjects?.length?.toString() || "0", tint: "text-violet-600 dark:text-violet-300" },
+              { i: GraduationCap, label: "Sections", value: assignedClasses.size.toString(), tint: "text-emerald-600 dark:text-emerald-300" },
+              { i: Trophy, label: "Total Students", value: totalStudentsCount.toString(), tint: "text-blue-600 dark:text-blue-300" },
             ].map(s => (
               <div key={s.label} className="rounded-2xl p-3 bg-muted/40 border border-border text-center">
                 <s.i className={`w-5 h-5 mx-auto ${s.tint}`} />
@@ -220,29 +376,24 @@ function Page() {
         <Card className="p-5">
           <h3 className="font-bold mb-4">Subjects Taught</h3>
           <ul className="space-y-2.5 text-sm">
-            {[
-              { code: "CS304", name: "Data Structures", sec: "A, B" },
-              { code: "CS305", name: "Database Management Systems", sec: "A, B" },
-              { code: "CS501", name: "Advanced Databases", sec: "A" },
-              { code: "CS601", name: "Machine Learning", sec: "A" },
-            ].map(s => (
-              <li key={s.code} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/40">
-                <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs">{s.code.slice(0, 2)}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold">{s.name}</div>
-                  <div className="text-xs text-muted-foreground">{s.code} · Sections {s.sec}</div>
-                </div>
-              </li>
-            ))}
+            {profile?.subjects && profile.subjects.length > 0 ? (
+              profile.subjects.map((sub: string, index: number) => (
+                <li key={index} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/40">
+                  <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs">{sub.slice(0, 2).toUpperCase()}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold">{sub}</div>
+                  </div>
+                </li>
+              ))
+            ) : (
+              <div className="text-muted-foreground text-sm">No subjects assigned.</div>
+            )}
           </ul>
         </Card>
 
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold">Account Information</h3>
-            <button onClick={() => setEditing(true)} className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1">
-              <Edit className="w-3 h-3" /> Edit
-            </button>
           </div>
           <dl className="space-y-2.5 text-sm">
             {([
@@ -250,7 +401,6 @@ function Page() {
               { i: Mail, k: "Email", v: displayEmail },
               { i: Shield, k: "Account Status", v: <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 font-semibold">Active</span> },
               { i: Calendar, k: "Member Since", v: form.joined },
-              { i: Calendar, k: "Last Login", v: "Today, 09:15 AM" },
             ] as const).map(f => (
               <div key={f.k} className="flex items-start gap-3">
                 <f.i className="w-4 h-4 text-muted-foreground mt-0.5" />

@@ -310,8 +310,8 @@ function ProfileMenu({ role, name, subtitle, initials, onLogout }: { role: Role;
       >
         <div className="w-10 h-10 rounded-full gradient-primary text-white flex items-center justify-center text-sm font-bold shadow-soft">{initials}</div>
         <div className="hidden md:block leading-tight text-left">
-          <div className="text-sm font-bold">{name.split(" ")[0] === "Student" ? "Student" : `Hi, ${name.split(" ")[0]}`}</div>
-          <div className="text-[11px] text-muted-foreground">{subtitle}</div>
+          <div className="text-sm font-bold">{name === "Student" ? "Student" : `Hi, ${name}`}</div>
+          <div className="text-[11px] text-muted-foreground">{subtitle?.includes(" | ") ? subtitle.split(" | ")[0] : subtitle}</div>
         </div>
         <ChevronDown className={`w-4 h-4 text-muted-foreground hidden md:block transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -319,7 +319,7 @@ function ProfileMenu({ role, name, subtitle, initials, onLogout }: { role: Role;
         <div className="absolute right-0 top-full mt-2 w-60 bg-card border border-border rounded-2xl shadow-xl z-50 overflow-hidden">
           <div className="p-3 bg-gradient-to-br from-primary/10 to-transparent border-b border-border">
             <div className="font-bold text-sm truncate">{name}</div>
-            <div className="text-[11px] text-muted-foreground truncate">{subtitle}</div>
+            <div className="text-[11px] text-muted-foreground truncate">{subtitle?.includes(" | ") ? subtitle.split(" | ")[0] : subtitle}</div>
           </div>
           <div className="p-1.5">
             {items.map((it, i) => it.to ? (

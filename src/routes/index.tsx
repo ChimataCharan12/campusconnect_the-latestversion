@@ -5,10 +5,10 @@ import {
   CheckSquare, Clock, FileText, Sparkles, Building2, Users, UserCog, Rocket, Server, Search,
   Menu,
 } from "lucide-react";
-import appLogo from "@/assets/mvsr-logo-clean.png.asset.json";
-import brandingLogo from "@/assets/mvsr-logo-clean.png.asset.json";
-import navIllustration from "@/assets/navigation.png.asset.json";
-import aiRobot from "@/assets/chatbot.png.asset.json";
+import appLogo from "@/assets/mvsr-logo.jpg";
+import brandingLogo from "@/assets/mvsr-logo.jpg";
+import navIllustration from "@/assets/campus-navigation.jpg";
+import aiRobot from "@/assets/ai-chatbot.jpg";
 import studentsPhoto from "@/assets/students-photo.jpg";
 import facultyPhoto from "@/assets/faculty-photo.jpg";
 import parentsPhoto from "@/assets/parents-photo.jpg";
@@ -50,7 +50,7 @@ function Landing() {
           <div className="max-w-7xl mx-auto h-16 px-4 md:px-6 flex items-center justify-between">
             <a href="#home" className="flex items-center gap-3 min-w-0">
               <div className="w-11 h-11 rounded-full bg-white p-0.5 flex items-center justify-center shadow-[0_0_18px_rgba(168,85,247,0.5)] shrink-0">
-                <img src={appLogo.url} alt="MVSR Engineering College" className="w-full h-full object-contain rounded-full" />
+                <img src={appLogo} alt="MVSR Engineering College" className="w-full h-full object-contain rounded-full" />
               </div>
               <div className="leading-tight">
                 <div className="text-sm font-extrabold tracking-wide text-white">
@@ -81,7 +81,7 @@ function Landing() {
               {/* Compact badge — NO outer glow container */}
               <div className="inline-flex items-center gap-3 px-3.5 py-2 mb-5 rounded-xl border border-violet-400/30 bg-white/[0.04] backdrop-blur-xl shadow-[0_0_18px_rgba(168,85,247,0.35)]">
                 <div className="w-10 h-10 rounded-full bg-white p-0.5 flex items-center justify-center shrink-0">
-                  <img src={appLogo.url} alt="MVSR" className="w-full h-full object-contain rounded-full" />
+                  <img src={appLogo} alt="MVSR" className="w-full h-full object-contain rounded-full" />
                 </div>
                 <div className="text-left">
                   <div className="text-xs font-bold tracking-wide text-white">MVSR ENGINEERING COLLEGE</div>
@@ -213,7 +213,7 @@ function Landing() {
               <FooterFeature icon={Rocket}      title="Smart & Innovative" desc="AI-powered features for a smarter campus." color="text-fuchsia-300" />
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-full bg-white p-1 flex items-center justify-center shrink-0">
-                  <img src={brandingLogo.url} alt="MVSR" className="w-full h-full object-contain rounded-full" />
+                  <img src={brandingLogo} alt="MVSR" className="w-full h-full object-contain rounded-full" />
                 </div>
                 <div>
                   <div className="text-sm font-bold text-white">MVSR Engineering College</div>
@@ -289,7 +289,7 @@ function DashboardPreview() {
       {/* topbar */}
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2">
-          <img src={appLogo.url} alt="" className="w-6 h-6 object-contain" />
+          <img src={appLogo} alt="" className="w-6 h-6 object-contain" />
           <span className="text-xs font-semibold text-white">Campus Connect</span>
         </div>
         <div className="hidden sm:flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/50 w-56">
@@ -383,7 +383,7 @@ function AICard() {
         <div className="relative aspect-square">
           <div className="absolute inset-2 rounded-full bg-[radial-gradient(circle_at_50%_55%,rgba(168,85,247,0.45),transparent_70%)] blur-xl" />
           <img
-            src={aiRobot.url}
+            src={aiRobot}
             alt="AI Assistant robot"
             className="relative w-full h-full object-contain"
           />
@@ -420,7 +420,7 @@ function NavCard() {
       </div>
       <div className="mt-3 relative w-full aspect-[4/3] max-h-40 overflow-hidden rounded-xl flex items-center justify-center">
         <img
-          src={navIllustration.url}
+          src={navIllustration}
           alt="Campus navigation map illustration"
           className="max-w-full max-h-full object-contain"
         />

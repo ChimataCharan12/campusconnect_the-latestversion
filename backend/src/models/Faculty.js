@@ -44,15 +44,24 @@ const facultySchema = new mongoose.Schema(
     dateOfBirth: {
       type: Date,
     },
+    gender: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     qualification: {
       type: String,
       trim: true,
       default: "",
       // e.g. "M.Tech", "Ph.D"
     },
+    specialization: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     experience: {
       type: Number,
-      default: 0,
       // years of experience
     },
     photoUrl: {

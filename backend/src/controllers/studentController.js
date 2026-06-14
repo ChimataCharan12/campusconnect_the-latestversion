@@ -6,10 +6,15 @@ import { sendSuccess, sendError } from "../utils/response.js";
 // @access  Private (student only)
 export const getMyProfile = async (req, res, next) => {
   try {
-    const profile = await Student.findOne({ userId: req.user._id }).populate(
-      "userId",
-      "name email username subtitle"
-    );
+    const profile = await Student.findOne({ userId: req.user._id })
+      .populate("userId", "name email username subtitle")
+      .populate({
+        path: "parentId",
+        populate: {
+          path: "userId",
+          select: "name email",
+        },
+      });
 
     if (!profile) {
       return sendError(
@@ -32,7 +37,7 @@ export const getMyProfile = async (req, res, next) => {
 // @access  Private (student only)
 export const updateMyProfile = async (req, res, next) => {
   try {
-    const allowedFields = ["phone", "address", "photoUrl", "dateOfBirth"];
+    const allowedFields = ["phone", "address", "photoUrl", "dateOfBirth", "gender"];
     const updates = {};
 
     allowedFields.forEach((field) => {
@@ -49,7 +54,15 @@ export const updateMyProfile = async (req, res, next) => {
       { userId: req.user._id },
       { $set: updates },
       { new: true, runValidators: true }
-    ).populate("userId", "name email username subtitle");
+    )
+      .populate("userId", "name email username subtitle")
+      .populate({
+        path: "parentId",
+        populate: {
+          path: "userId",
+          select: "name email",
+        },
+      });
 
     if (!profile) {
       return sendError(res, "Student profile not found", 404);

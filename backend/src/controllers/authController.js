@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import User from "../models/User.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 
@@ -59,6 +60,7 @@ export const register = async (req, res, next) => {
           role: user.role,
           name: user.name,
           subtitle: user.subtitle,
+          photoUrl: user.photoUrl,
         },
       },
       211 // Using a successful status code for creation
@@ -108,6 +110,7 @@ export const login = async (req, res, next) => {
         role: user.role,
         name: user.name,
         subtitle: user.subtitle,
+        photoUrl: user.photoUrl,
       },
     });
   } catch (error) {
@@ -128,9 +131,97 @@ export const getMe = async (req, res, next) => {
         role: req.user.role,
         name: req.user.name,
         subtitle: req.user.subtitle,
+        photoUrl: req.user.photoUrl,
       },
     });
   } catch (error) {
     next(error);
   }
 };
+
+// @desc    Request a password reset token
+// @route   POST /api/auth/forgot-password
+// @access  Public
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return sendError(res, "Please provide an email address", 400);
+    }
+
+    // Look up user by email
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (!user) {
+      return sendError(res, "No account found with that email address", 404);
+    }
+
+    // ── Token generation ────────────────────────────────────────────────────
+    // 1. Generate a cryptographically secure raw token (32 bytes → 64 hex chars)
+    const rawToken = crypto.randomBytes(32).toString("hex");
+
+    // 2. Hash it with SHA-256 — ONLY the hash is persisted to MongoDB
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(rawToken)
+      .digest("hex");
+
+    // 3. Set token fields on the user document
+    user.passwordResetToken = hashedToken;
+    user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    // 4. Save — bypass required-field validation for unrelated fields
+    await user.save({ validateBeforeSave: false });
+
+    // ── Dev-mode response (raw token returned; email step comes later) ───────
+    return sendSuccess(res, "Password reset token generated", {
+      resetToken: rawToken,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Reset password using token
+// @route   POST /api/auth/reset-password/:token
+// @access  Public
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!password) {
+      return sendError(res, "Please provide a new password", 400);
+    }
+
+    // Hash the raw token to compare with the database hash
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    // Find user by hashed token and make sure it has not expired
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return sendError(res, "Invalid or expired reset token", 400);
+    }
+
+    // Set the new password and clear the reset fields
+    user.passwordHash = password;
+    user.passwordResetToken = null;
+    user.passwordResetExpires = null;
+
+    // Save the user (this will trigger the pre-save hook to hash user.passwordHash)
+    await user.save();
+
+    return sendSuccess(res, "Password reset successful");
+  } catch (error) {
+    next(error);
+  }
+};
+

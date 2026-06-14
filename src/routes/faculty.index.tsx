@@ -5,7 +5,7 @@ import {
   UserCog, ArrowRight, FileText, CheckCircle2, ClipboardList, Award,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 
@@ -19,13 +19,124 @@ function Page() {
   const dateStr = date.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
   const dayStr = date.toLocaleDateString("en-US", { weekday: "long" });
 
+  const [slots, setSlots] = useState<any[]>([]);
+  const [students, setStudents] = useState<any[]>([]);
+  const [leaves, setLeaves] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const token = user?.token;
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+  useEffect(() => {
+    if (!token) return;
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const headers = { Authorization: `Bearer ${token}` };
+        const [slotsRes, studentsRes, leavesRes, notifRes] = await Promise.all([
+          fetch(`${API_BASE}/api/timetable`, { headers }).then(r => r.json()),
+          fetch(`${API_BASE}/api/students`, { headers }).then(r => r.json()),
+          fetch(`${API_BASE}/api/leaves`, { headers }).then(r => r.json()),
+          fetch(`${API_BASE}/api/notifications`, { headers }).then(r => r.json()),
+        ]);
+
+        if (slotsRes.success && slotsRes.data?.slots) {
+          setSlots(slotsRes.data.slots);
+        }
+        if (studentsRes.success && studentsRes.data?.students) {
+          setStudents(studentsRes.data.students);
+        }
+        if (leavesRes.success && leavesRes.data?.leaves) {
+          setLeaves(leavesRes.data.leaves);
+        }
+        if (notifRes.success && notifRes.data?.notifications) {
+          setNotifications(notifRes.data.notifications);
+        }
+      } catch (error) {
+        console.error("Error loading faculty dashboard data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [token]);
+
+  const assignedClasses = useMemo(() => {
+    const set = new Set<string>();
+    slots.forEach((s: any) => {
+      set.add(`${s.branch}|${s.section}|${s.year}`);
+    });
+    return set;
+  }, [slots]);
+
+  const totalStudentsCount = useMemo(() => {
+    if (assignedClasses.size === 0) return 0;
+    return students.filter((s: any) => {
+      return assignedClasses.has(`${s.branch}|${s.section}|${s.year}`);
+    }).length;
+  }, [students, assignedClasses]);
+
+  const classesTodayCount = useMemo(() => {
+    const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const todayDay = weekdays[new Date().getDay()];
+    return slots.filter((s: any) => s.day === todayDay).length;
+  }, [slots]);
+
+  const pendingLeavesCount = useMemo(() => {
+    return leaves.filter((leave: any) => {
+      if (leave.status !== "Pending") return false;
+      const stud = leave.studentId;
+      if (!stud) return false;
+      return assignedClasses.has(`${stud.branch}|${stud.section}|${stud.year}`);
+    }).length;
+  }, [leaves, assignedClasses]);
+
+  const messagesCount = notifications.length;
+
+  const recentActivities = useMemo(() => {
+    const list: any[] = [];
+    
+    // Filter leaves belonging to faculty's classes
+    const facultyLeaves = leaves.filter((leave: any) => {
+      const stud = leave.studentId;
+      if (!stud) return false;
+      return assignedClasses.has(`${stud.branch}|${stud.section}|${stud.year}`);
+    });
+
+    facultyLeaves.slice(0, 5).forEach((leave: any) => {
+      const dVal = new Date(leave.createdAt);
+      list.push({
+        i: ClipboardList,
+        t: `Leave request from ${leave.studentId?.userId?.name || "Student"} - ${leave.status}`,
+        time: dVal.toLocaleDateString("en-GB") || "Recently",
+        c: leave.status === "Pending" ? "amber" : leave.status === "Approved" ? "emerald" : "rose",
+        timestamp: dVal.getTime(),
+      });
+    });
+
+    notifications.slice(0, 5).forEach((n: any) => {
+      const dVal = new Date(n.createdAt || new Date());
+      list.push({
+        i: MessageSquare,
+        t: `Announcement published: ${n.title}`,
+        time: dVal.toLocaleDateString("en-GB") || "Recently",
+        c: "blue",
+        timestamp: dVal.getTime(),
+      });
+    });
+
+    list.sort((a, b) => b.timestamp - a.timestamp);
+    return list.slice(0, 4);
+  }, [leaves, notifications, assignedClasses]);
+
   return (
     <div className="space-y-7">
       {/* Welcome banner */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-[28px] lg:text-[32px] font-extrabold tracking-tight leading-tight">
-            Welcome back, {user?.name?.split(" ")[0] ?? "Faculty"}! <span aria-hidden>👋</span>
+            Welcome back, {user?.name ?? "Faculty"}! <span aria-hidden>👋</span>
           </h1>
           <p className="text-muted-foreground text-[14.5px] mt-1.5">Here's an overview of your activities.</p>
         </div>
@@ -60,10 +171,10 @@ function Page() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatTile icon={Users} label="Total Students" value="120" tint="violet" to="/faculty/students" cta="View All" />
-        <StatTile icon={Calendar} label="Classes Today" value="18" tint="emerald" to="/faculty/timetable" cta="View Schedule" />
-        <StatTile icon={ClipboardCheck} label="Pending Tasks" value="6" tint="amber" to="/faculty/assignments" cta="View Tasks" />
-        <StatTile icon={MessageSquare} label="Messages" value="3" tint="blue" to="/faculty/notifications" cta="View Messages" />
+        <StatTile icon={Users} label="Total Students" value={loading ? "—" : String(totalStudentsCount)} tint="violet" to="/faculty/students" cta="View All" />
+        <StatTile icon={Calendar} label="Classes Today" value={loading ? "—" : String(classesTodayCount)} tint="emerald" to="/faculty/timetable" cta="View Schedule" />
+        <StatTile icon={ClipboardCheck} label="Pending Tasks" value={loading ? "—" : String(pendingLeavesCount)} tint="amber" to="/faculty/assignments" cta="View Tasks" />
+        <StatTile icon={MessageSquare} label="Messages" value={loading ? "—" : String(messagesCount)} tint="blue" to="/faculty/notifications" cta="View Messages" />
       </div>
 
       {/* Big action cards */}
@@ -98,20 +209,19 @@ function Page() {
           <Link to={"/faculty/notifications" as any} className="text-sm font-semibold text-primary hover:underline">View All</Link>
         </div>
         <div className="divide-y divide-border">
-          {[
-            { i: CheckCircle2, t: "Attendance uploaded for CSE 3rd Year - Data Structures", time: "2 hours ago", c: "emerald" },
-            { i: FileText, t: "Internal marks entered for CSE 2nd Year - DBMS", time: "5 hours ago", c: "blue" },
-            { i: Users, t: "Updated details for 5 students", time: "1 day ago", c: "violet" },
-            { i: GraduationCap, t: "Published Internal Test 2 marks for Computer Networks", time: "2 days ago", c: "amber" },
-          ].map((a, i) => (
-            <div key={i} className="flex items-center gap-3 py-3.5">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${tintBg(a.c)}`}>
-                <a.i className={`w-[18px] h-[18px] ${tintText(a.c)}`} />
+          {recentActivities.length === 0 ? (
+            <div className="py-4 text-center text-sm text-muted-foreground">No recent activities.</div>
+          ) : (
+            recentActivities.map((a, i) => (
+              <div key={i} className="flex items-center gap-3 py-3.5">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${tintBg(a.c)}`}>
+                  <a.i className={`w-[18px] h-[18px] ${tintText(a.c)}`} />
+                </div>
+                <div className="flex-1 min-w-0 text-[14px] font-medium">{a.t}</div>
+                <div className="text-xs text-muted-foreground whitespace-nowrap">{a.time}</div>
               </div>
-              <div className="flex-1 min-w-0 text-[14px] font-medium">{a.t}</div>
-              <div className="text-xs text-muted-foreground whitespace-nowrap">{a.time}</div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </Card>
     </div>

@@ -5,9 +5,13 @@ import {
   getStudentMarks,
   getClassMarks,
   updateStudentMarks,
+  getAdminMarksSummary,
 } from "../controllers/marksController.js";
 
 const router = express.Router();
+
+// GET /api/marks/admin/summary - Get consolidated marks summary for all students (Admin only)
+router.get("/admin/summary", protect, authorize("admin"), getAdminMarksSummary);
 
 // GET /api/marks/student/:studentId - Get all grades for a student
 router.get("/student/:studentId", protect, getStudentMarks);

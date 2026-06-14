@@ -1,28 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { PageHeader } from "@/components/AppShell";
 import { MetricCard, SectionCard, StatusPill, GhostButton, PrimaryButton } from "@/components/admin-ui";
-import { Users, GraduationCap, Users2, BarChart3, Mail, Phone, MapPin, Calendar, Camera, Pencil, Lock, Bell, ShieldCheck, ChevronRight, Building2, BookOpen, FileText, Send, CheckCircle2, Clock } from "lucide-react";
+import { Users, GraduationCap, Users2, BarChart3, Mail, Phone, MapPin, Calendar, Camera, Pencil, Lock, Bell, ShieldCheck, ChevronRight, Building2, BookOpen, FileText, Send, CheckCircle2, Clock, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/profile")({ component: Page });
+
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 type Profile = {
   name: string; email: string; phone: string;
   designation: string; department: string; location: string; joinDate: string;
+  photoUrl?: string;
 };
 
 const defaultProfile: Profile = {
-  name: "Admin", email: "admin@campusconnect.edu", phone: "+91 98765 43210",
+  name: "Admin", email: "admin@mvsrec.edu.in", phone: "+91 98765 43210",
   designation: "System Administrator", department: "Administration",
   location: "Hyderabad, Telangana, India", joinDate: "15 Jan 2024",
+  photoUrl: "",
 };
-
-function loadProfile(): Profile {
-  if (typeof window === "undefined") return defaultProfile;
-  try { const raw = localStorage.getItem("cc_admin_profile"); return raw ? { ...defaultProfile, ...JSON.parse(raw) } : defaultProfile; } catch { return defaultProfile; }
-}
 
 const activity = [
   { t: "Profile updated",   d: "Today, 10:30 AM", s: "Success" },
@@ -40,33 +40,168 @@ const access = [
 ];
 
 function Page() {
-  const [profile, setProfile] = useState<Profile>(() => loadProfile());
+  const { user, login } = useAuth();
+  const [profile, setProfile] = useState<Profile>(defaultProfile);
+  const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
   const [pwd, setPwd] = useState({ cur: "", n: "", c: "" });
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!user?.token) return;
+    fetch(`${API_BASE}/api/admin/profile`, {
+      headers: {
+        "Authorization": `Bearer ${user.token}`,
+      },
+    })
+      .then((res) => res.json())
+      .then((res) => {
+        if (res.success && res.data?.user) {
+          const u = res.data.user;
+          let designation = "System Administrator";
+          let department = "Administration";
+          let phone = "+91 98765 43210";
+          let location = "Hyderabad, Telangana, India";
+          if (u.subtitle && u.subtitle.includes(" | ")) {
+            const parts = u.subtitle.split(" | ");
+            designation = parts[0] || designation;
+            department = parts[1] || department;
+            phone = parts[2] || phone;
+            location = parts[3] || location;
+          } else if (u.subtitle) {
+            designation = u.subtitle;
+          }
+          setProfile({
+            name: u.name || "",
+            email: u.email || "",
+            phone,
+            designation,
+            department,
+            location,
+            joinDate: u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "15 Jan 2024",
+            photoUrl: u.photoUrl || "",
+          });
+          setPhotoUrl(u.photoUrl || null);
+        }
+      })
+      .catch((err) => console.error("Error fetching admin profile:", err))
+      .finally(() => setLoading(false));
+  }, [user?.token, user?.name, user?.email]);
+
+  const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = async () => {
+      const url = String(r.result);
+      setPhotoUrl(url);
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/profile`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${user?.token}`,
+          },
+          body: JSON.stringify({ photoUrl: url }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          toast.success("Profile photo updated");
+          if (user) {
+            login({ ...user, photoUrl: url });
+          }
+        } else {
+          toast.error("Failed to save photo");
+        }
+      } catch (err) {
+        console.error(err);
+        toast.error("Error saving photo");
+      }
+    };
+    r.readAsDataURL(f);
+  };
+
+  const onRemovePhoto = async () => {
+    setPhotoUrl(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${user?.token}`,
+        },
+        body: JSON.stringify({ photoUrl: "" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Profile photo removed");
+        if (user) {
+          login({ ...user, photoUrl: "" });
+        }
+      } else {
+        toast.error("Failed to remove photo");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Error removing photo");
+    }
+  };
 
   const personal: Array<[string, string]> = [
     ["Full Name", profile.name], ["Email Address", profile.email], ["Phone Number", profile.phone],
     ["Designation", profile.designation], ["Department", profile.department], ["Location", profile.location], ["Join Date", profile.joinDate],
   ];
 
-  const initials = profile.name.split(" ").map(s => s[0]).join("").slice(0, 2).toUpperCase();
+  const initials = profile.name ? profile.name.split(" ").map(s => s[0]).join("").slice(0, 2).toUpperCase() : "AD";
 
-  const onSave = (e: React.FormEvent<HTMLFormElement>) => {
+  const onSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const next: Profile = {
-      name: String(fd.get("name") || profile.name),
-      email: String(fd.get("email") || profile.email),
-      phone: String(fd.get("phone") || profile.phone),
-      designation: String(fd.get("designation") || profile.designation),
-      department: String(fd.get("department") || profile.department),
-      location: String(fd.get("location") || profile.location),
-      joinDate: profile.joinDate,
-    };
-    setProfile(next);
-    try { localStorage.setItem("cc_admin_profile", JSON.stringify(next)); } catch {}
-    toast.success("Profile updated");
-    setEditOpen(false);
+    const name = String(fd.get("name") || profile.name);
+    const designation = String(fd.get("designation") || profile.designation);
+    const department = String(fd.get("department") || profile.department);
+    const phone = String(fd.get("phone") || profile.phone);
+    const location = String(fd.get("location") || profile.location);
+
+    const subtitleValue = `${designation} | ${department} | ${phone} | ${location}`;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${user?.token}`,
+        },
+        body: JSON.stringify({ name, subtitle: subtitleValue }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const u = data.data.user;
+        setProfile({
+          name: u.name,
+          email: u.email,
+          phone,
+          designation,
+          department,
+          location,
+          joinDate: u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : profile.joinDate,
+        });
+        if (user) {
+          login({
+            ...user,
+            name: u.name,
+            subtitle: subtitleValue,
+          });
+        }
+        toast.success("Profile updated successfully");
+        setEditOpen(false);
+      } else {
+        toast.error(data.message || "Failed to update profile");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("An error occurred while updating profile");
+    }
   };
 
   const onUpdatePassword = () => {
@@ -77,15 +212,37 @@ function Page() {
     setPwd({ cur: "", n: "", c: "" });
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader title="Admin Profile" subtitle="Dashboard › Profile" action={<GhostButton icon={Pencil} onClick={() => setEditOpen(true)}>Edit Profile</GhostButton>} />
 
       {/* Hero card */}
       <div className="bg-card rounded-2xl border border-border/70 shadow-soft p-6 grid grid-cols-1 lg:grid-cols-[auto_1fr_auto] gap-6 items-center">
-        <div className="relative w-28 h-28 rounded-full bg-gradient-to-br from-violet-200 to-violet-100 dark:from-violet-500/30 dark:to-violet-500/10 flex items-center justify-center ring-4 ring-primary/10 mx-auto lg:mx-0">
-          <div className="text-3xl font-extrabold text-primary">{initials || "AD"}</div>
-          <button onClick={() => toast("Profile photo", { description: "Upload coming soon" })} className="absolute bottom-0 right-1 w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center shadow-md"><Camera className="w-4 h-4" /></button>
+        <div className="relative w-28 h-28 rounded-full shrink-0 mx-auto lg:mx-0">
+          {photoUrl ? (
+            <img src={photoUrl} alt="Admin" className="w-28 h-28 rounded-full object-cover shadow-elegant ring-4 ring-primary/10" />
+          ) : (
+            <div className="w-28 h-28 rounded-full bg-gradient-to-br from-violet-200 to-violet-100 dark:from-violet-500/30 dark:to-violet-500/10 flex items-center justify-center ring-4 ring-primary/10 text-3xl font-extrabold text-primary">
+              {initials || "AD"}
+            </div>
+          )}
+          <button onClick={() => fileRef.current?.click()} className="absolute bottom-0 right-1 w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center shadow-md hover:bg-primary/90 transition-colors" aria-label="Change photo">
+            <Camera className="w-4 h-4" />
+          </button>
+          {photoUrl && (
+            <button onClick={onRemovePhoto} className="absolute bottom-0 left-1 w-8 h-8 rounded-full bg-card border border-border shadow-md flex items-center justify-center hover:bg-rose-50 text-rose-500 hover:text-rose-600 transition-colors" aria-label="Remove photo">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickPhoto} />
         </div>
         <div className="text-center lg:text-left">
           <div className="text-2xl font-extrabold">{profile.name}</div>
@@ -98,10 +255,10 @@ function Page() {
           </div>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:min-w-[480px]">
-          <MiniMetric icon={Users}          label="Total Students" value="2,486" tint="violet"  trend="5.2%" />
-          <MiniMetric icon={GraduationCap}  label="Total Faculty"  value="156"   tint="emerald" trend="3.1%" />
-          <MiniMetric icon={Users2}         label="Total Parents"  value="1,872" tint="amber"   trend="4.8%" />
-          <MiniMetric icon={BarChart3}      label="Attendance"     value="87.6%" tint="blue"    trend="6.3%" />
+          <MiniMetric icon={Users}          label="Total Students" value="413" tint="violet"  trend="5.2%" />
+          <MiniMetric icon={GraduationCap}  label="Total Faculty"  value="43"   tint="emerald" trend="3.1%" />
+          <MiniMetric icon={Users2}         label="Total Parents"  value="413" tint="amber"   trend="4.8%" />
+          <MiniMetric icon={BarChart3}      label="Attendance"     value="82.0%" tint="blue"    trend="6.3%" />
         </div>
       </div>
 
@@ -184,7 +341,7 @@ function Page() {
           <DialogHeader><DialogTitle>Edit Profile</DialogTitle></DialogHeader>
           <form onSubmit={onSave} className="grid grid-cols-2 gap-3">
             <label className="block col-span-2"><span className="text-xs font-medium text-muted-foreground">Full Name</span><input name="name" required defaultValue={profile.name} className="cc-input mt-1" /></label>
-            <label className="block"><span className="text-xs font-medium text-muted-foreground">Email</span><input name="email" type="email" required defaultValue={profile.email} className="cc-input mt-1" /></label>
+            <label className="block col-span-2"><span className="text-xs font-medium text-muted-foreground">Email Address</span><input name="email" type="email" disabled defaultValue={profile.email} className="cc-input mt-1 bg-muted/50 cursor-not-allowed" /></label>
             <label className="block"><span className="text-xs font-medium text-muted-foreground">Phone</span><input name="phone" defaultValue={profile.phone} className="cc-input mt-1" /></label>
             <label className="block"><span className="text-xs font-medium text-muted-foreground">Designation</span><input name="designation" defaultValue={profile.designation} className="cc-input mt-1" /></label>
             <label className="block"><span className="text-xs font-medium text-muted-foreground">Department</span><input name="department" defaultValue={profile.department} className="cc-input mt-1" /></label>

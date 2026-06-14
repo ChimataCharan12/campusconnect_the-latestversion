@@ -193,6 +193,121 @@ export const getClassAttendance = async (req, res, next) => {
   }
 };
 
+// @desc    Admin-level aggregate summary: attendance per class group
+// @route   GET /api/attendance/admin/summary
+// @access  Private (Admin only)
+export const getAdminAttendanceSummary = async (req, res, next) => {
+  try {
+    // Get all unique branch/section/year groups from active students
+    const groups = await Student.aggregate([
+      { $match: { isActive: true } },
+      {
+        $group: {
+          _id: { branch: "$branch", section: "$section", year: "$year" },
+          studentIds: { $push: "$_id" },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.branch": 1, "_id.year": 1, "_id.section": 1 } },
+    ]);
+
+    const results = await Promise.all(
+      groups.map(async (group) => {
+        const { branch, section, year } = group._id;
+        const studentIds = group.studentIds;
+
+        // Today's attendance for these students
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+
+        const todayLogs = await Attendance.find({
+          studentId: { $in: studentIds },
+          date: { $gte: todayStart, $lte: todayEnd },
+        });
+
+        let present = 0;
+        let absent = 0;
+        let late = 0;
+
+        todayLogs.forEach((log) => {
+          if (log.status === "Present") {
+            present++;
+          } else if (log.status === "Late") {
+            late++;
+            present++;
+          } else if (log.status === "Absent") {
+            absent++;
+          }
+        });
+
+        const records = todayLogs.length;
+        const percentage = records > 0 ? Number(((present / records) * 100).toFixed(1)) : 0;
+        const total = group.count;
+
+        return {
+          branch,
+          section,
+          year,
+          label: `${branch} - ${year}Y ${section}`,
+          total,      // student headcount
+          records,    // count of today's logs
+          present,    // present + late count
+          absent,     // absent count
+          late,       // late count
+          percentage,
+        };
+      })
+    );
+
+    // Overall stats (across all students today)
+    const allStudentIds = groups.flatMap((g) => g.studentIds);
+    const todayStart2 = new Date();
+    todayStart2.setHours(0, 0, 0, 0);
+    const todayEnd2 = new Date();
+    todayEnd2.setHours(23, 59, 59, 999);
+
+    const allTodayLogs = await Attendance.find({
+      studentId: { $in: allStudentIds },
+      date: { $gte: todayStart2, $lte: todayEnd2 },
+    });
+
+    let overallPresent = 0;
+    let overallAbsent = 0;
+    let overallLate = 0;
+
+    allTodayLogs.forEach((log) => {
+      if (log.status === "Present") {
+        overallPresent++;
+      } else if (log.status === "Late") {
+        overallLate++;
+        overallPresent++;
+      } else if (log.status === "Absent") {
+        overallAbsent++;
+      }
+    });
+
+    const totalRecords = allTodayLogs.length;
+    const overallPercentage = totalRecords > 0 ? Number(((overallPresent / totalRecords) * 100).toFixed(1)) : 0;
+    const totalStudents = allStudentIds.length;
+
+    return sendSuccess(res, "Admin attendance summary retrieved", {
+      classes: results,
+      overall: {
+        totalStudents,
+        totalRecords,
+        presentToday: overallPresent,
+        absentToday: overallAbsent,
+        lateToday: overallLate,
+        overallPercentage,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Mark attendance for student(s) in bulk
 // @route   POST /api/attendance/mark
 // @access  Private (Faculty, Admin)
@@ -204,7 +319,8 @@ export const markAttendance = async (req, res, next) => {
       return sendError(res, "subject, date, and attendanceLogs (array) are required", 400);
     }
 
-    const logDate = new Date(date);
+    const parsedDate = new Date(date);
+    const logDate = new Date(Date.UTC(parsedDate.getUTCFullYear(), parsedDate.getUTCMonth(), parsedDate.getUTCDate()));
     const markedBy = req.user._id;
 
     const operations = attendanceLogs.map((log) => {

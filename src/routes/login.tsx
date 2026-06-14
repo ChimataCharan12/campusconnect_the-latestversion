@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Landmark, User, Lock, Eye, EyeOff, LogIn, Users, UserCog, GraduationCap, Shield, Zap, Heart } from "lucide-react";
-import { useAuth, demoUsers, type Role } from "@/lib/auth";
+import { Landmark, User, Lock, Eye, EyeOff, LogIn, Users, UserCog, GraduationCap, Shield, Zap, Heart, MessageSquare, X, AlertCircle, CheckCircle } from "lucide-react";
+import { useAuth, type Role } from "@/lib/auth";
 import { toast } from "sonner";
 import campusBg from "@/assets/login-campus.jpg";
 
@@ -13,21 +13,102 @@ export const Route = createFileRoute("/login")({
 function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [username, setUsername] = useState("ananya");
-  const [password, setPassword] = useState("demo1234");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
-  const [role, setRole] = useState<Role>("student");
+  const [role, setRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(false);
   const [remember, setRemember] = useState(true);
 
+  // Contact Admin modal state
+  const [contactOpen, setContactOpen] = useState(false);
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactMessage, setContactMessage] = useState("");
+  const [contactLoading, setContactLoading] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
+  const [contactSuccess, setContactSuccess] = useState(false);
+
+  const openContactModal = () => {
+    setContactName("");
+    setContactEmail("");
+    setContactMessage("");
+    setContactError(null);
+    setContactSuccess(false);
+    setContactOpen(true);
+  };
+
+  const submitContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setContactError(null);
+    setContactLoading(true);
+    try {
+      const res = await fetch("/api/contact-admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: contactName, email: contactEmail, message: contactMessage }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setContactError(data.message || "Failed to send message. Please try again.");
+        return;
+      }
+      setContactSuccess(true);
+      toast.success("Message sent to admin!");
+    } catch {
+      setContactError("Network error. Please check your connection.");
+    } finally {
+      setContactLoading(false);
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!role) { toast.error("Please select a login role"); return; }
     if (!username || !password) { toast.error("Please enter username and password"); return; }
     setLoading(true);
-    await new Promise(r => setTimeout(r, 600));
-    login(demoUsers[role]);
-    toast.success(`Welcome back, ${demoUsers[role].name}!`);
-    navigate({ to: `/${role}` as any });
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/auth/login`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ username, password }),
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast.error(data.message || "Invalid credentials. Please try again.");
+        return;
+      }
+
+      // Check if role matches selected role
+      if (data.data.user.role !== role) {
+        toast.error(`Invalid role: registered as ${data.data.user.role}, but logging in as ${role}.`);
+        return;
+      }
+
+      const authUser = {
+        id: data.data.user.id,
+        name: data.data.user.name,
+        email: data.data.user.email,
+        role: data.data.user.role,
+        subtitle: data.data.user.subtitle,
+        token: data.data.token,
+      };
+
+      login(authUser);
+      toast.success(`Welcome back, ${data.data.user.name}!`);
+      navigate({ to: `/${role}` as any });
+    } catch (err: any) {
+      toast.error("Network error. Please check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const roles: { id: Role; label: string; icon: any }[] = [
@@ -174,7 +255,10 @@ function LoginPage() {
             </button>
 
             <p className="text-center text-xs text-muted-foreground">
-              Don't have an account? <a className="text-primary font-semibold cursor-pointer">Contact Admin</a>
+              Don't have an account?{" "}
+              <button type="button" onClick={openContactModal} className="text-primary font-semibold cursor-pointer hover:underline">
+                Contact Admin
+              </button>
             </p>
           </form>
 
@@ -184,6 +268,117 @@ function LoginPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Contact Admin Modal ──────────────────────────────────────────────── */}
+      {contactOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.45)" }}>
+          <div className="w-full max-w-md bg-card rounded-3xl shadow-elegant border border-border overflow-hidden">
+            {/* Modal header */}
+            <div className="gradient-hero text-white p-6 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-bold text-base">Contact Admin</div>
+                  <div className="text-white/80 text-xs mt-0.5">We'll get back to you soon</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContactOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {contactSuccess ? (
+              <div className="p-8 text-center space-y-4">
+                <div className="flex justify-center">
+                  <CheckCircle className="w-12 h-12 text-green-500" />
+                </div>
+                <div className="font-semibold text-lg">Message Sent!</div>
+                <p className="text-sm text-muted-foreground">The admin will get back to you soon.</p>
+                <button
+                  type="button"
+                  onClick={() => setContactOpen(false)}
+                  className="w-full py-2.5 rounded-xl gradient-primary text-white font-semibold text-sm"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={submitContact} className="p-6 space-y-4">
+                {contactError && (
+                  <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive">
+                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span>{contactError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-sm font-medium">Name</label>
+                  <input
+                    required
+                    value={contactName}
+                    onChange={e => setContactName(e.target.value)}
+                    disabled={contactLoading}
+                    placeholder="Your full name"
+                    className="mt-1.5 w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={contactEmail}
+                    onChange={e => setContactEmail(e.target.value)}
+                    disabled={contactLoading}
+                    placeholder="your@email.com"
+                    className="mt-1.5 w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Message</label>
+                  <textarea
+                    required
+                    rows={4}
+                    value={contactMessage}
+                    onChange={e => setContactMessage(e.target.value)}
+                    disabled={contactLoading}
+                    placeholder="Describe your issue or request..."
+                    className="mt-1.5 w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none disabled:opacity-60"
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setContactOpen(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-border text-sm font-semibold hover:bg-muted transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={contactLoading}
+                    className="flex-1 py-2.5 rounded-xl gradient-primary text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-70"
+                  >
+                    {contactLoading
+                      ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Sending...</>
+                      : "Send Message"
+                    }
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

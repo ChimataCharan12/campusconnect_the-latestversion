@@ -8,12 +8,45 @@ import { announcements, todaysClasses, events, attendanceTrend } from "@/lib/moc
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { useAuth } from "@/lib/auth";
 import campusBanner from "@/assets/campus-banner.png";
+import { useEffect, useState } from "react";
+
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export const Route = createFileRoute("/student/")({ component: Dashboard });
 
 function Dashboard() {
   const { user } = useAuth();
-  const first = user?.name?.split(" ")[0] ?? "Student";
+  const name = user?.name ?? "Student";
+  const token = user?.token;
+
+  const [attSummary, setAttSummary] = useState<{ overall: number; attended: number; absent: number; total: number } | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    const load = async () => {
+      try {
+        const profileRes = await fetch(`${API_BASE}/api/students/profile`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const profileData = await profileRes.json();
+        if (!profileData.success) return;
+        const sid = profileData.data.profile._id;
+        const sumRes = await fetch(`${API_BASE}/api/attendance/summary/${sid}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const sumData = await sumRes.json();
+        if (sumData.success) {
+          setAttSummary({
+            overall: sumData.data.overallPercentage,
+            attended: sumData.data.attended,
+            absent: sumData.data.absent,
+            total: sumData.data.totalClasses,
+          });
+        }
+      } catch { /* silently fail — dashboard continues to work */ }
+    };
+    load();
+  }, [token]);
 
   return (
     <div className="space-y-6">
@@ -21,7 +54,7 @@ function Dashboard() {
       <div className="relative overflow-hidden rounded-3xl px-6 sm:px-8 lg:px-10 py-8 sm:py-10 cc-welcome-banner border border-primary/10">
         <div className="relative max-w-md z-10">
           <h1 className="text-2xl sm:text-3xl lg:text-[34px] font-extrabold tracking-tight leading-[1.15] text-foreground">
-            Welcome back,<br/>{first}! <span className="inline-block">👋</span>
+            Welcome back,<br/>{name}! <span className="inline-block">👋</span>
           </h1>
           <p className="text-muted-foreground mt-3 text-sm sm:text-base">Here's what's happening on campus.</p>
         </div>
@@ -42,18 +75,28 @@ function Dashboard() {
           to="/student/attendance"
           icon={CalendarCheck}
         >
-          <div className="text-center mt-3">
-            <div className="text-[40px] leading-none font-extrabold bg-gradient-to-br from-emerald-600 to-teal-600 bg-clip-text text-transparent">82%</div>
-            <div className="text-xs text-muted-foreground mt-1">Overall Attendance</div>
-          </div>
-          <div className="h-2 rounded-full bg-emerald-100 dark:bg-emerald-900/30 mt-3 overflow-hidden">
-            <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 shadow-glow-emerald" style={{ width: "82%" }} />
-          </div>
-          <div className="grid grid-cols-3 text-center text-[11px] mt-3 divide-x divide-emerald-200/60 dark:divide-emerald-900/40">
-            <div className="px-1"><div className="text-emerald-600 dark:text-emerald-300 font-bold text-sm">82%</div><div className="text-muted-foreground">Present</div></div>
-            <div className="px-1"><div className="text-rose-600 dark:text-rose-300 font-bold text-sm">12%</div><div className="text-muted-foreground">Absent</div></div>
-            <div className="px-1"><div className="font-bold text-sm">120</div><div className="text-muted-foreground">Total</div></div>
-          </div>
+          {attSummary && attSummary.total === 0 ? (
+            <div className="flex flex-col items-center justify-center py-6 text-xs text-muted-foreground text-center min-h-[120px]">
+              <span>No attendance recorded yet</span>
+            </div>
+          ) : (
+            <>
+              <div className="text-center mt-3">
+                <div className="text-[40px] leading-none font-extrabold bg-gradient-to-br from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+                  {attSummary ? `${attSummary.overall}%` : "—"}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">Overall Attendance</div>
+              </div>
+              <div className="h-2 rounded-full bg-emerald-100 dark:bg-emerald-900/30 mt-3 overflow-hidden">
+                <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 shadow-glow-emerald" style={{ width: `${attSummary?.overall ?? 0}%` }} />
+              </div>
+              <div className="grid grid-cols-3 text-center text-[11px] mt-3 divide-x divide-emerald-200/60 dark:divide-emerald-900/40">
+                <div className="px-1"><div className="text-emerald-600 dark:text-emerald-300 font-bold text-sm">{attSummary ? `${attSummary.overall}%` : "—"}</div><div className="text-muted-foreground">Present</div></div>
+                <div className="px-1"><div className="text-rose-600 dark:text-rose-300 font-bold text-sm">{attSummary ? `${attSummary.absent}` : "—"}</div><div className="text-muted-foreground">Absent</div></div>
+                <div className="px-1"><div className="font-bold text-sm">{attSummary ? attSummary.total : "—"}</div><div className="text-muted-foreground">Total</div></div>
+              </div>
+            </>
+          )}
         </SummaryCard>
 
         <SummaryCard
